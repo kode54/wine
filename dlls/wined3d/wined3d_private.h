@@ -2551,6 +2551,8 @@ void wined3d_cs_emit_set_render_state(struct wined3d_cs *cs, enum wined3d_render
         DWORD value) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_set_texture_state(struct wined3d_cs *cs, UINT stage,
         enum wined3d_texture_stage_state state, DWORD value) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_set_sampler_state(struct wined3d_cs *cs, UINT sampler_idx,
+        enum wined3d_sampler_state state, DWORD value) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d

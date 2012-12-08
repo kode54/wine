@@ -45,6 +45,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_PIXEL_SHADER,
     WINED3D_CS_OP_SET_RENDER_STATE,
     WINED3D_CS_OP_SET_TEXTURE_STATE,
+    WINED3D_CS_OP_SET_SAMPLER_STATE,
     WINED3D_CS_OP_STOP,
 };
 
@@ -198,6 +199,14 @@ struct wined3d_cs_set_texture_state
     enum wined3d_cs_op opcode;
     UINT stage;
     enum wined3d_texture_stage_state state;
+    DWORD value;
+};
+
+struct wined3d_cs_set_sampler_state
+{
+    enum wined3d_cs_op opcode;
+    UINT sampler_idx;
+    enum wined3d_sampler_state state;
     DWORD value;
 };
 
@@ -442,8 +451,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
     memcpy(cs->state.ps_consts_b, op->state.ps_consts_b, sizeof(cs->state.ps_consts_b));
     memcpy(cs->state.ps_consts_i, op->state.ps_consts_i, sizeof(cs->state.ps_consts_i));
 
-    memcpy(cs->state.sampler_states, op->state.sampler_states, sizeof(cs->state.sampler_states));
-
     memcpy(cs->state.transforms, op->state.transforms, sizeof(cs->state.transforms));
     memcpy(cs->state.clip_planes, op->state.clip_planes, sizeof(cs->state.clip_planes));
     cs->state.material = op->state.material;
@@ -480,8 +487,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
     memcpy(op->state.ps_sampler, state->ps_sampler, sizeof(op->state.ps_sampler));
     memcpy(op->state.ps_consts_b, state->ps_consts_b, sizeof(op->state.ps_consts_b));
     memcpy(op->state.ps_consts_i, state->ps_consts_i, sizeof(op->state.ps_consts_i));
-
-    memcpy(op->state.sampler_states, state->sampler_states, sizeof(op->state.sampler_states));
 
     memcpy(op->state.transforms, state->transforms, sizeof(op->state.transforms));
     memcpy(op->state.clip_planes, state->clip_planes, sizeof(op->state.clip_planes));
@@ -1048,6 +1053,30 @@ void wined3d_cs_emit_set_texture_state(struct wined3d_cs *cs, UINT stage,
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_sampler_state(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_sampler_state *op = data;
+
+    cs->state.sampler_states[op->sampler_idx][op->state] = op->value;
+    device_invalidate_state(cs->device, STATE_SAMPLER(op->sampler_idx));
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_sampler_state(struct wined3d_cs *cs, UINT sampler_idx,
+        enum wined3d_sampler_state state, DWORD value)
+{
+    struct wined3d_cs_set_sampler_state *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SET_SAMPLER_STATE;
+    op->sampler_idx = sampler_idx;
+    op->state = state;
+    op->value = value;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -1072,6 +1101,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_PIXEL_SHADER       */ wined3d_cs_exec_set_pixel_shader,
     /* WINED3D_CS_OP_SET_RENDER_STATE       */ wined3d_cs_exec_set_render_state,
     /* WINED3D_CS_OP_SET_TEXTURE_STATE      */ wined3d_cs_exec_set_texture_state,
+    /* WINED3D_CS_OP_SET_SAMPLER_STATE      */ wined3d_cs_exec_set_sampler_state,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
