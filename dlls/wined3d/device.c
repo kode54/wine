@@ -1764,7 +1764,7 @@ void CDECL wined3d_device_set_material(struct wined3d_device *device, const stru
         return;
     }
 
-    device_invalidate_state(device, STATE_MATERIAL);
+    wined3d_cs_emit_set_material(device->cs, material);
 }
 
 void CDECL wined3d_device_get_material(const struct wined3d_device *device, struct wined3d_material *material)
