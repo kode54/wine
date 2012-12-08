@@ -47,6 +47,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_TEXTURE_STATE,
     WINED3D_CS_OP_SET_SAMPLER_STATE,
     WINED3D_CS_OP_SET_TRANSFORM,
+    WINED3D_CS_OP_SET_CLIP_PLANE,
     WINED3D_CS_OP_STOP,
 };
 
@@ -216,6 +217,13 @@ struct wined3d_cs_set_transform
     enum wined3d_cs_op opcode;
     enum wined3d_transform_state state;
     struct wined3d_matrix matrix;
+};
+
+struct wined3d_cs_set_clip_plane
+{
+    enum wined3d_cs_op opcode;
+    UINT plane_idx;
+    struct wined3d_vec4 plane;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -459,7 +467,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
     memcpy(cs->state.ps_consts_b, op->state.ps_consts_b, sizeof(cs->state.ps_consts_b));
     memcpy(cs->state.ps_consts_i, op->state.ps_consts_i, sizeof(cs->state.ps_consts_i));
 
-    memcpy(cs->state.clip_planes, op->state.clip_planes, sizeof(cs->state.clip_planes));
     cs->state.material = op->state.material;
 
     memcpy(cs->state.lights, op->state.lights, sizeof(cs->state.lights));
@@ -495,7 +502,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
     memcpy(op->state.ps_consts_b, state->ps_consts_b, sizeof(op->state.ps_consts_b));
     memcpy(op->state.ps_consts_i, state->ps_consts_i, sizeof(op->state.ps_consts_i));
 
-    memcpy(op->state.clip_planes, state->clip_planes, sizeof(op->state.clip_planes));
     op->state.material = state->material;
 
     /* FIXME: This is not ideal. CS is still running synchronously, so this is ok.
@@ -1107,6 +1113,28 @@ void wined3d_cs_emit_set_transform(struct wined3d_cs *cs, enum wined3d_transform
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_clip_plane(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_clip_plane *op = data;
+
+    cs->state.clip_planes[op->plane_idx] = op->plane;
+    device_invalidate_state(cs->device, STATE_CLIPPLANE(op->plane_idx));
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_clip_plane(struct wined3d_cs *cs, UINT plane_idx, const struct wined3d_vec4 *plane)
+{
+    struct wined3d_cs_set_clip_plane *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SET_CLIP_PLANE;
+    op->plane_idx = plane_idx;
+    op->plane = *plane;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -1133,6 +1161,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_TEXTURE_STATE      */ wined3d_cs_exec_set_texture_state,
     /* WINED3D_CS_OP_SET_SAMPLER_STATE      */ wined3d_cs_exec_set_sampler_state,
     /* WINED3D_CS_OP_SET_TRANSFORM          */ wined3d_cs_exec_set_transform,
+    /* WINED3D_CS_OP_SET_CLIP_PLANE         */ wined3d_cs_exec_set_clip_plane,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)

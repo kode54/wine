@@ -1706,7 +1706,7 @@ HRESULT CDECL wined3d_device_set_clip_plane(struct wined3d_device *device,
         return WINED3D_OK;
     }
 
-    device_invalidate_state(device, STATE_CLIPPLANE(plane_idx));
+    wined3d_cs_emit_set_clip_plane(device->cs, plane_idx, plane);
 
     return WINED3D_OK;
 }
