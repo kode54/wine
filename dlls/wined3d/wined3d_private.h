@@ -2487,8 +2487,15 @@ struct wined3d_cs_block
     BYTE data[4000]; /* FIXME? The size is somewhat arbitrary. */
 };
 
+struct wined3d_cs_ops
+{
+    void *(*require_space)(struct wined3d_cs *cs, size_t size);
+    void (*submit)(struct wined3d_cs *cs);
+};
+
 struct wined3d_cs
 {
+    const struct wined3d_cs_ops *ops;
     HANDLE thread;
     DWORD tls_idx;
     struct wined3d_cs_list free_list;
