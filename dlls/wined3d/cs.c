@@ -26,6 +26,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_FENCE,
     WINED3D_CS_OP_PRESENT,
     WINED3D_CS_OP_CLEAR,
+    WINED3D_CS_OP_DRAW,
     WINED3D_CS_OP_STOP,
 };
 
@@ -64,6 +65,16 @@ struct wined3d_cs_clear
     float depth;
     DWORD stencil;
     RECT rects[1];
+};
+
+struct wined3d_cs_draw
+{
+    enum wined3d_cs_op opcode;
+    UINT start_idx;
+    UINT index_count;
+    UINT start_instance;
+    UINT instance_count;
+    BOOL indexed;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -255,11 +266,38 @@ void wined3d_cs_emit_clear(struct wined3d_cs *cs, DWORD rect_count, const RECT *
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_draw(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_draw *op = data;
+
+    draw_primitive(cs->device, op->start_idx, op->index_count,
+            op->start_instance, op->instance_count, op->indexed);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_draw(struct wined3d_cs *cs, UINT start_idx, UINT index_count,
+        UINT start_instance, UINT instance_count, BOOL indexed)
+{
+    struct wined3d_cs_draw *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_DRAW;
+    op->start_idx = start_idx;
+    op->index_count = index_count;
+    op->start_instance = start_instance;
+    op->instance_count = instance_count;
+    op->indexed = indexed;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
     /* WINED3D_CS_OP_PRESENT                */ wined3d_cs_exec_present,
     /* WINED3D_CS_OP_CLEAR                  */ wined3d_cs_exec_clear,
+    /* WINED3D_CS_OP_DRAW                   */ wined3d_cs_exec_draw,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
