@@ -46,6 +46,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_RENDER_STATE,
     WINED3D_CS_OP_SET_TEXTURE_STATE,
     WINED3D_CS_OP_SET_SAMPLER_STATE,
+    WINED3D_CS_OP_SET_TRANSFORM,
     WINED3D_CS_OP_STOP,
 };
 
@@ -208,6 +209,13 @@ struct wined3d_cs_set_sampler_state
     UINT sampler_idx;
     enum wined3d_sampler_state state;
     DWORD value;
+};
+
+struct wined3d_cs_set_transform
+{
+    enum wined3d_cs_op opcode;
+    enum wined3d_transform_state state;
+    struct wined3d_matrix matrix;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -451,7 +459,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
     memcpy(cs->state.ps_consts_b, op->state.ps_consts_b, sizeof(cs->state.ps_consts_b));
     memcpy(cs->state.ps_consts_i, op->state.ps_consts_i, sizeof(cs->state.ps_consts_i));
 
-    memcpy(cs->state.transforms, op->state.transforms, sizeof(cs->state.transforms));
     memcpy(cs->state.clip_planes, op->state.clip_planes, sizeof(cs->state.clip_planes));
     cs->state.material = op->state.material;
 
@@ -488,7 +495,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
     memcpy(op->state.ps_consts_b, state->ps_consts_b, sizeof(op->state.ps_consts_b));
     memcpy(op->state.ps_consts_i, state->ps_consts_i, sizeof(op->state.ps_consts_i));
 
-    memcpy(op->state.transforms, state->transforms, sizeof(op->state.transforms));
     memcpy(op->state.clip_planes, state->clip_planes, sizeof(op->state.clip_planes));
     op->state.material = state->material;
 
@@ -1077,6 +1083,30 @@ void wined3d_cs_emit_set_sampler_state(struct wined3d_cs *cs, UINT sampler_idx,
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_transform(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_transform *op = data;
+
+    cs->state.transforms[op->state] = op->matrix;
+    if (op->state < WINED3D_TS_WORLD_MATRIX(cs->device->adapter->gl_info.limits.blends))
+        device_invalidate_state(cs->device, STATE_TRANSFORM(op->state));
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_transform(struct wined3d_cs *cs, enum wined3d_transform_state state,
+        const struct wined3d_matrix *matrix)
+{
+    struct wined3d_cs_set_transform *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SET_TRANSFORM;
+    op->state = state;
+    op->matrix = *matrix;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -1102,6 +1132,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_RENDER_STATE       */ wined3d_cs_exec_set_render_state,
     /* WINED3D_CS_OP_SET_TEXTURE_STATE      */ wined3d_cs_exec_set_texture_state,
     /* WINED3D_CS_OP_SET_SAMPLER_STATE      */ wined3d_cs_exec_set_sampler_state,
+    /* WINED3D_CS_OP_SET_TRANSFORM          */ wined3d_cs_exec_set_transform,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
