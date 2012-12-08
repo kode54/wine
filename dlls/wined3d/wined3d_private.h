@@ -2500,10 +2500,20 @@ struct wined3d_cs
     DWORD tls_idx;
     struct wined3d_cs_list free_list;
     struct wined3d_cs_list exec_list;
+    /* FIXME: We should throttle presents, to prevent the application from
+     * getting too far ahead of the GPU. 2 or 3 frames is probably still
+     * acceptable. */
+#if 0
+    UINT present_idx;
+#endif
 };
 
 struct wined3d_cs *wined3d_cs_create(void) DECLSPEC_HIDDEN;
 void wined3d_cs_destroy(struct wined3d_cs *cs) DECLSPEC_HIDDEN;
+
+void wined3d_cs_emit_present(struct wined3d_cs *cs, struct wined3d_swapchain *swapchain,
+        const RECT *src_rect, const RECT *dst_rect, HWND dst_window_override,
+        const RGNDATA *dirty_region, DWORD flags) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d

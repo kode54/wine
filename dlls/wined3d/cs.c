@@ -24,6 +24,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(d3d);
 enum wined3d_cs_op
 {
     WINED3D_CS_OP_FENCE,
+    WINED3D_CS_OP_PRESENT,
     WINED3D_CS_OP_STOP,
 };
 
@@ -36,6 +37,20 @@ struct wined3d_cs_fence
 {
     enum wined3d_cs_op opcode;
     BOOL *signalled;
+};
+
+/* FIXME: Once the command stream runs asynchronously, we can't have pointer
+ * to stack data (for e.g. rects) here, since they'll go away while the cs is
+ * running. */
+struct wined3d_cs_present
+{
+    enum wined3d_cs_op opcode;
+    HWND dst_window_override;
+    struct wined3d_swapchain *swapchain;
+    const RECT *src_rect;
+    const RECT *dst_rect;
+    const RGNDATA *dirty_region;
+    DWORD flags;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -144,9 +159,42 @@ static void wined3d_cs_emit_fence(struct wined3d_cs *cs, BOOL *signalled)
     op->signalled = signalled;
 }
 
+static UINT wined3d_cs_exec_present(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_present *op = data;
+    struct wined3d_swapchain *swapchain;
+
+    swapchain = op->swapchain;
+    wined3d_swapchain_set_window(swapchain, op->dst_window_override);
+
+    swapchain->swapchain_ops->swapchain_present(swapchain,
+            op->src_rect, op->dst_rect, op->dirty_region, op->flags);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_present(struct wined3d_cs *cs, struct wined3d_swapchain *swapchain,
+        const RECT *src_rect, const RECT *dst_rect, HWND dst_window_override,
+        const RGNDATA *dirty_region, DWORD flags)
+{
+    struct wined3d_cs_present *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_PRESENT;
+    op->dst_window_override = dst_window_override;
+    op->swapchain = swapchain;
+    op->src_rect = src_rect;
+    op->dst_rect = dst_rect;
+    op->dirty_region = dirty_region;
+    op->flags = flags;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
+    /* WINED3D_CS_OP_PRESENT                */ wined3d_cs_exec_present,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
