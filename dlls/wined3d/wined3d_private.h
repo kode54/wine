@@ -265,6 +265,7 @@ struct wined3d_settings
     unsigned int max_sm_gs;
     unsigned int max_sm_ps;
     BOOL no_3d;
+    BOOL cs_multithreaded;
 };
 
 extern struct wined3d_settings wined3d_settings DECLSPEC_HIDDEN;
@@ -1959,6 +1960,9 @@ struct wined3d_device
     UINT dummy_texture_3d[MAX_COMBINED_SAMPLERS];
     UINT dummy_texture_cube[MAX_COMBINED_SAMPLERS];
 
+    /* Command stream */
+    struct wined3d_cs *cs;
+
     /* Context management */
     struct wined3d_context **contexts;
     UINT context_count;
@@ -2470,6 +2474,29 @@ HRESULT state_init(struct wined3d_state *state, const struct wined3d_d3d_info *d
         const struct wined3d_gl_info *gl_info) DECLSPEC_HIDDEN;
 void state_init_default(struct wined3d_state *state, struct wined3d_device *device) DECLSPEC_HIDDEN;
 void state_unbind_resources(struct wined3d_state *state) DECLSPEC_HIDDEN;
+
+struct wined3d_cs_list
+{
+    struct list blocks;
+};
+
+struct wined3d_cs_block
+{
+    struct list entry;
+    UINT pos;
+    BYTE data[4000]; /* FIXME? The size is somewhat arbitrary. */
+};
+
+struct wined3d_cs
+{
+    HANDLE thread;
+    DWORD tls_idx;
+    struct wined3d_cs_list free_list;
+    struct wined3d_cs_list exec_list;
+};
+
+struct wined3d_cs *wined3d_cs_create(void) DECLSPEC_HIDDEN;
+void wined3d_cs_destroy(struct wined3d_cs *cs) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d
