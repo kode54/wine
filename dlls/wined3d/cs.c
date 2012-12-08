@@ -25,6 +25,7 @@ enum wined3d_cs_op
 {
     WINED3D_CS_OP_FENCE,
     WINED3D_CS_OP_PRESENT,
+    WINED3D_CS_OP_CLEAR,
     WINED3D_CS_OP_STOP,
 };
 
@@ -51,6 +52,17 @@ struct wined3d_cs_present
     const RECT *dst_rect;
     const RGNDATA *dirty_region;
     DWORD flags;
+};
+
+struct wined3d_cs_clear
+{
+    enum wined3d_cs_op opcode;
+    DWORD rect_count;
+    const RECT *rects;
+    DWORD flags;
+    const struct wined3d_color *color;
+    float depth;
+    DWORD stencil;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -191,10 +203,43 @@ void wined3d_cs_emit_present(struct wined3d_cs *cs, struct wined3d_swapchain *sw
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_clear(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_clear *op = data;
+    struct wined3d_device *device = cs->device;
+    const struct wined3d_fb_state *fb = &device->state.fb;
+    RECT draw_rect;
+
+    wined3d_get_draw_rect(&device->state, &draw_rect);
+    device_clear_render_targets(device, device->adapter->gl_info.limits.buffers,
+            fb, op->rect_count, op->rects, &draw_rect, op->flags,
+            op->color, op->depth, op->stencil);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_clear(struct wined3d_cs *cs, DWORD rect_count, const RECT *rects,
+        DWORD flags, const struct wined3d_color *color, float depth, DWORD stencil)
+{
+    struct wined3d_cs_clear *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_CLEAR;
+    op->rect_count = rect_count;
+    op->rects = rects;
+    op->flags = flags;
+    op->color = color;
+    op->depth = depth;
+    op->stencil = stencil;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
     /* WINED3D_CS_OP_PRESENT                */ wined3d_cs_exec_present,
+    /* WINED3D_CS_OP_CLEAR                  */ wined3d_cs_exec_clear,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
@@ -336,7 +381,7 @@ done:
 /* We could also create a single thread for all of wined3d, instead of one for
  * each device, at the cost of some extra overhead for each block. I'm not
  * sure that we'd gain anything from that though. */
-struct wined3d_cs *wined3d_cs_create(void)
+struct wined3d_cs *wined3d_cs_create(struct wined3d_device *device)
 {
     struct wined3d_cs *cs;
     DWORD ret;
@@ -374,6 +419,7 @@ struct wined3d_cs *wined3d_cs_create(void)
     {
         cs->ops = &wined3d_cs_st_ops;
     }
+    cs->device = device;
 
     return cs;
 }
