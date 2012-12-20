@@ -463,6 +463,7 @@ void state_unbind_resources(struct wined3d_state *state)
     struct wined3d_texture *texture;
     struct wined3d_buffer *buffer;
     struct wined3d_shader *shader;
+    struct wined3d_surface *surface;
     unsigned int i;
 
     if ((decl = state->vertex_declaration))
@@ -575,6 +576,31 @@ void state_unbind_resources(struct wined3d_state *state)
             wined3d_buffer_decref(buffer);
         }
     }
+
+    if (state->fb.depth_stencil)
+    {
+        surface = state->fb.depth_stencil;
+
+        TRACE("Releasing depth/stencil buffer %p.\n", surface);
+
+        state->fb.depth_stencil = NULL;
+        wined3d_surface_decref(surface);
+    }
+
+    if (state->fb.render_targets)
+    {
+        for (i = 0; i < state->fb.rt_size; i++)
+        {
+            surface = state->fb.render_targets[i];
+            TRACE("Setting rendertarget %u to NULL\n", i);
+            state->fb.render_targets[i] = NULL;
+            if (surface)
+            {
+                TRACE("Releasing the render target at %p\n", surface);
+                wined3d_surface_decref(surface);
+            }
+        }
+    }
 }
 
 void state_cleanup(struct wined3d_state *state)
@@ -596,9 +622,11 @@ void state_cleanup(struct wined3d_state *state)
 
     HeapFree(GetProcessHeap(), 0, state->vs_consts_f);
     HeapFree(GetProcessHeap(), 0, state->ps_consts_f);
+    HeapFree(GetProcessHeap(), 0, state->fb.render_targets);
 }
 
-HRESULT state_init(struct wined3d_state *state, const struct wined3d_d3d_info *d3d_info)
+HRESULT state_init(struct wined3d_state *state, const struct wined3d_d3d_info *d3d_info,
+        const struct wined3d_gl_info *gl_info)
 {
     unsigned int i;
 
@@ -617,6 +645,15 @@ HRESULT state_init(struct wined3d_state *state, const struct wined3d_d3d_info *d
         HeapFree(GetProcessHeap(), 0, state->vs_consts_f);
         return E_OUTOFMEMORY;
     }
+
+    if (!(state->fb.render_targets = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+            sizeof(*state->fb.render_targets) * gl_info->limits.buffers)))
+    {
+        HeapFree(GetProcessHeap(), 0, state->ps_consts_f);
+        HeapFree(GetProcessHeap(), 0, state->vs_consts_f);
+        return E_OUTOFMEMORY;
+    }
+    state->fb.rt_size = gl_info->limits.buffers;
 
     return WINED3D_OK;
 }
@@ -1201,8 +1238,6 @@ void state_init_default(struct wined3d_state *state, struct wined3d_device *devi
         state->transforms[WINED3D_TS_WORLD_MATRIX(i)] = identity;
     }
 
-    state->fb = &device->fb;
-
     TRACE("Render states\n");
     /* Render states: */
     if (device->auto_depth_stencil)
@@ -1418,12 +1453,13 @@ static HRESULT stateblock_init(struct wined3d_stateblock *stateblock,
         struct wined3d_device *device, enum wined3d_stateblock_type type)
 {
     HRESULT hr;
+    const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
     const struct wined3d_d3d_info *d3d_info = &device->adapter->d3d_info;
 
     stateblock->ref = 1;
     stateblock->device = device;
 
-    if (FAILED(hr = state_init(&stateblock->state, d3d_info)))
+    if (FAILED(hr = state_init(&stateblock->state, d3d_info, gl_info)))
         return hr;
 
     if (FAILED(hr = stateblock_allocate_shader_constants(stateblock)))

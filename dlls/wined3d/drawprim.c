@@ -604,7 +604,7 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
         /* Invalidate the back buffer memory so LockRect will read it the next time */
         for (i = 0; i < device->adapter->gl_info.limits.buffers; ++i)
         {
-            struct wined3d_surface *target = device->fb.render_targets[i];
+            struct wined3d_surface *target = state->fb.render_targets[i];
             if (target)
             {
                 surface_load_location(target, target->draw_binding, NULL);
@@ -613,7 +613,7 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
         }
     }
 
-    context = context_acquire(device, device->fb.render_targets[0]);
+    context = context_acquire(device, state->fb.render_targets[0]);
     if (!context->valid)
     {
         context_release(context);
@@ -622,17 +622,17 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
     }
     gl_info = context->gl_info;
 
-    if (device->fb.depth_stencil)
+    if (state->fb.depth_stencil)
     {
         /* Note that this depends on the context_acquire() call above to set
          * context->render_offscreen properly. We don't currently take the
          * Z-compare function into account, but we could skip loading the
          * depthstencil for D3DCMP_NEVER and D3DCMP_ALWAYS as well. Also note
          * that we never copy the stencil data.*/
-        DWORD location = context->render_offscreen ? device->fb.depth_stencil->draw_binding : SFLAG_INDRAWABLE;
+        DWORD location = context->render_offscreen ? state->fb.depth_stencil->draw_binding : SFLAG_INDRAWABLE;
         if (state->render_states[WINED3D_RS_ZWRITEENABLE] || state->render_states[WINED3D_RS_ZENABLE])
         {
-            struct wined3d_surface *ds = device->fb.depth_stencil;
+            struct wined3d_surface *ds = state->fb.depth_stencil;
             RECT current_rect, draw_rect, r;
 
             if (!context->render_offscreen && ds != device->onscreen_depth_stencil)
@@ -658,9 +658,9 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
         return;
     }
 
-    if (device->fb.depth_stencil && state->render_states[WINED3D_RS_ZWRITEENABLE])
+    if (state->fb.depth_stencil && state->render_states[WINED3D_RS_ZWRITEENABLE])
     {
-        struct wined3d_surface *ds = device->fb.depth_stencil;
+        struct wined3d_surface *ds = state->fb.depth_stencil;
         DWORD location = context->render_offscreen ? ds->draw_binding : SFLAG_INDRAWABLE;
 
         surface_modify_ds_location(ds, location, ds->ds_current_size.cx, ds->ds_current_size.cy);

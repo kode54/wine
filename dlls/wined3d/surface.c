@@ -1295,9 +1295,11 @@ static BOOL fbo_blit_supported(const struct wined3d_gl_info *gl_info, enum wined
 /* This function checks if the primary render target uses the 8bit paletted format. */
 static BOOL primary_render_target_is_p8(const struct wined3d_device *device)
 {
-    if (device->fb.render_targets && device->fb.render_targets[0])
+    const struct wined3d_fb_state *fb = &device->state.fb;
+
+    if (fb->render_targets && fb->render_targets[0])
     {
-        const struct wined3d_surface *render_target = device->fb.render_targets[0];
+        const struct wined3d_surface *render_target = fb->render_targets[0];
         if ((render_target->resource.usage & WINED3DUSAGE_RENDERTARGET)
                 && (render_target->resource.format->id == WINED3DFMT_P8_UINT))
             return TRUE;
@@ -2357,6 +2359,7 @@ static HRESULT d3dfmt_get_conv(const struct wined3d_surface *surface, BOOL need_
     const struct wined3d_device *device = surface->resource.device;
     const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
     BOOL blit_supported = FALSE;
+    const struct wined3d_fb_state *fb = &device->state.fb;
 
     /* Copy the default values from the surface. Below we might perform fixups */
     /* TODO: get rid of color keying desc fixups by using e.g. a table. */
@@ -2388,7 +2391,7 @@ static HRESULT d3dfmt_get_conv(const struct wined3d_surface *surface, BOOL need_
              * in which the main render target uses p8. Some games like GTA Vice City use P8 for texturing which
              * conflicts with this.
              */
-            if (!((blit_supported && device->fb.render_targets && surface == device->fb.render_targets[0]))
+            if (!((blit_supported && fb->render_targets && surface == fb->render_targets[0]))
                     || colorkey_active || !use_texturing)
             {
                 format->glFormat = GL_RGBA;
@@ -5240,6 +5243,7 @@ static HRESULT IWineD3DSurfaceImpl_BltOverride(struct wined3d_surface *dst_surfa
     struct wined3d_device *device = dst_surface->resource.device;
     const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
     struct wined3d_swapchain *src_swapchain, *dst_swapchain;
+    const struct wined3d_fb_state *fb = &device->state.fb;
 
     TRACE("dst_surface %p, dst_rect %s, src_surface %p, src_rect %s, flags %#x, blt_fx %p, filter %s.\n",
             dst_surface, wine_dbgstr_rect(dst_rect), src_surface, wine_dbgstr_rect(src_rect),
@@ -5271,8 +5275,8 @@ static HRESULT IWineD3DSurfaceImpl_BltOverride(struct wined3d_surface *dst_surfa
 
     /* Early sort out of cases where no render target is used */
     if (!dst_swapchain && !src_swapchain
-            && src_surface != device->fb.render_targets[0]
-            && dst_surface != device->fb.render_targets[0])
+            && src_surface != fb->render_targets[0]
+            && dst_surface != fb->render_targets[0])
     {
         TRACE("No surface is render target, not using hardware blit.\n");
         return WINED3DERR_INVALIDCALL;
@@ -5301,16 +5305,16 @@ static HRESULT IWineD3DSurfaceImpl_BltOverride(struct wined3d_surface *dst_surfa
     if (dst_swapchain)
     {
         /* Handled with regular texture -> swapchain blit */
-        if (src_surface == device->fb.render_targets[0])
+        if (src_surface == fb->render_targets[0])
             TRACE("Blit from active render target to a swapchain\n");
     }
-    else if (src_swapchain && dst_surface == device->fb.render_targets[0])
+    else if (src_swapchain && dst_surface == fb->render_targets[0])
     {
         FIXME("Implement blit from a swapchain to the active render target\n");
         return WINED3DERR_INVALIDCALL;
     }
 
-    if ((src_swapchain || src_surface == device->fb.render_targets[0]) && !dst_swapchain)
+    if ((src_swapchain || src_surface == fb->render_targets[0]) && !dst_swapchain)
     {
         /* Blit from render target to texture */
         BOOL stretchx;
