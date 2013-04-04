@@ -892,6 +892,13 @@ static void surface_map(struct wined3d_surface *surface, const RECT *rect, DWORD
     TRACE("surface %p, rect %s, flags %#x.\n",
             surface, wine_dbgstr_rect(rect), flags);
 
+    if (wined3d_settings.cs_multithreaded)
+    {
+        FIXME("Waiting for cs.\n");
+        wined3d_cs_emit_glfinish(device->cs);
+        device->cs->ops->finish(device->cs);
+    }
+
     if (flags & WINED3D_MAP_DISCARD)
     {
         TRACE("WINED3D_MAP_DISCARD flag passed, marking SYSMEM as up to date.\n");
@@ -1551,6 +1558,13 @@ HRESULT CDECL wined3d_surface_blt(struct wined3d_surface *dst_surface, const REC
         if (!once++)
             FIXME("Can't handle WINEDDBLT_DONOTWAIT flag.\n");
         flags &= ~WINEDDBLT_DONOTWAIT;
+    }
+
+    if (wined3d_settings.cs_multithreaded)
+    {
+        FIXME("Waiting for cs.\n");
+        wined3d_cs_emit_glfinish(device->cs);
+        device->cs->ops->finish(device->cs);
     }
 
     if (!device->d3d_initialized)
@@ -4064,6 +4078,14 @@ HRESULT CDECL wined3d_surface_flip(struct wined3d_surface *surface, struct wined
     {
         WARN("Tried to flip a non-render target, non-overlay surface.\n");
         return WINEDDERR_NOTFLIPPABLE;
+    }
+
+    if (wined3d_settings.cs_multithreaded)
+    {
+        struct wined3d_device *device = surface->resource.device;
+        FIXME("Waiting for cs.\n");
+        wined3d_cs_emit_glfinish(device->cs);
+        device->cs->ops->finish(device->cs);
     }
 
     flip_surface(surface, override);
