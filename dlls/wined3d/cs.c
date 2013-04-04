@@ -28,6 +28,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_CLEAR,
     WINED3D_CS_OP_DRAW,
     WINED3D_CS_OP_STATEBLOCK,
+    WINED3D_CS_OP_SET_RENDER_TARGET,
     WINED3D_CS_OP_STOP,
 };
 
@@ -82,8 +83,14 @@ struct wined3d_cs_stateblock
 {
     enum wined3d_cs_op opcode;
     struct wined3d_state state;
-    struct wined3d_surface *render_targets[32]; /* FIXME. Should be enough for the transition though */
     float vs_consts_f[256 * 4], ps_consts_f[256 * 4];
+};
+
+struct wined3d_cs_set_render_target
+{
+    enum wined3d_cs_op opcode;
+    UINT render_target_idx;
+    struct wined3d_surface *render_target;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -305,7 +312,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
 {
     const struct wined3d_adapter *adapter = cs->device->adapter;
     const struct wined3d_cs_stateblock *op = data;
-    unsigned int i;
     UINT num_vs_consts_f = sizeof(op->vs_consts_f) / sizeof(*op->vs_consts_f) / 4;
     UINT num_ps_consts_f = sizeof(op->ps_consts_f) / sizeof(*op->ps_consts_f) / 4;
 
@@ -314,8 +320,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
 
     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
      * ops for setting states */
-    for (i = 0; i < cs->state.fb.rt_size; i++)
-        cs->state.fb.render_targets[i] = op->state.fb.render_targets[i];
     cs->state.fb.depth_stencil = op->state.fb.depth_stencil;
 
     cs->state.vertex_declaration = op->state.vertex_declaration;
@@ -368,7 +372,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
     const struct wined3d_device *device = cs->device;
     const struct wined3d_adapter *adapter = device->adapter;
     struct wined3d_cs_stateblock *op;
-    unsigned int i;
     UINT num_vs_consts_f = sizeof(op->vs_consts_f) / sizeof(*op->vs_consts_f) / 4;
     UINT num_ps_consts_f = sizeof(op->ps_consts_f) / sizeof(*op->ps_consts_f) / 4;
 
@@ -380,10 +383,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
 
     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
      * ops for setting states */
-    op->state.fb.render_targets = op->render_targets;
-    op->state.fb.rt_size = sizeof(op->render_targets) / sizeof(*op->render_targets);
-    for (i = 0; i < state->fb.rt_size; i++)
-        op->render_targets[i] = state->fb.render_targets[i];
     op->state.fb.depth_stencil = state->fb.depth_stencil;
 
     op->state.vertex_declaration = state->vertex_declaration;
@@ -435,6 +434,30 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_render_target(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_render_target *op = data;
+
+    cs->state.fb.render_targets[op->render_target_idx] = op->render_target;
+
+    device_invalidate_state(cs->device, STATE_FRAMEBUFFER);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_render_target(struct wined3d_cs *cs, UINT render_target_idx,
+        struct wined3d_surface *render_target)
+{
+    struct wined3d_cs_set_render_target *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SET_RENDER_TARGET;
+    op->render_target_idx = render_target_idx;
+    op->render_target = render_target;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -442,6 +465,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_CLEAR                  */ wined3d_cs_exec_clear,
     /* WINED3D_CS_OP_DRAW                   */ wined3d_cs_exec_draw,
     /* WINED3D_CS_OP_STATEBLOCK             */ wined3d_cs_exec_transfer_stateblock,
+    /* WINED3D_CS_OP_SET_RENDER_TARGET      */ wined3d_cs_exec_set_render_target,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)

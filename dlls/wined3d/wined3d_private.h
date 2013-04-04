@@ -2526,6 +2526,8 @@ void wined3d_cs_emit_draw(struct wined3d_cs *cs, UINT start_idx, UINT index_coun
         UINT start_instance, UINT instance_count, BOOL indexed) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs,
         const struct wined3d_state *state) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_set_render_target(struct wined3d_cs *cs, UINT render_target_idx,
+        struct wined3d_surface *render_target) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d

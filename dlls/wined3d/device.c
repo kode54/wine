@@ -882,14 +882,13 @@ HRESULT CDECL wined3d_device_init_3d(struct wined3d_device *device,
     if (swapchain->back_buffers && swapchain->back_buffers[0])
     {
         TRACE("Setting rendertarget to %p.\n", swapchain->back_buffers);
-        device->state.fb.render_targets[0] = swapchain->back_buffers[0];
+        wined3d_device_set_render_target(device, 0, swapchain->back_buffers[0], FALSE);
     }
     else
     {
         TRACE("Setting rendertarget to %p.\n", swapchain->front_buffer);
-        device->state.fb.render_targets[0] = swapchain->front_buffer;
+        wined3d_device_set_render_target(device, 0, swapchain->front_buffer, FALSE);
     }
-    wined3d_surface_incref(device->state.fb.render_targets[0]);
 
     /* Depth Stencil support */
     device->state.fb.depth_stencil = device->auto_depth_stencil;
@@ -4034,12 +4033,13 @@ HRESULT CDECL wined3d_device_set_render_target(struct wined3d_device *device,
     if (render_target)
         wined3d_surface_incref(render_target);
     fb->render_targets[render_target_idx] = render_target;
+
+    wined3d_cs_emit_set_render_target(device->cs, render_target_idx, render_target);
+
     /* Release after the assignment, to prevent device_resource_released()
      * from seeing the surface as still in use. */
     if (prev)
         wined3d_surface_decref(prev);
-
-    device_invalidate_state(device, STATE_FRAMEBUFFER);
 
     return WINED3D_OK;
 }
