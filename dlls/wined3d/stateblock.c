@@ -603,11 +603,12 @@ void state_unbind_resources(struct wined3d_state *state)
     }
 }
 
-void state_cleanup(struct wined3d_state *state)
+void state_cleanup(struct wined3d_state *state, BOOL unbind)
 {
     unsigned int counter;
 
-    state_unbind_resources(state);
+    if (unbind)
+        state_unbind_resources(state);
 
     for (counter = 0; counter < LIGHTMAP_SIZE; ++counter)
     {
@@ -643,6 +644,7 @@ HRESULT state_init(struct wined3d_state *state, const struct wined3d_d3d_info *d
             4 * sizeof(float) * d3d_info->limits.ps_uniform_count)))
     {
         HeapFree(GetProcessHeap(), 0, state->vs_consts_f);
+        state->vs_consts_f = NULL;
         return E_OUTOFMEMORY;
     }
 
@@ -650,7 +652,9 @@ HRESULT state_init(struct wined3d_state *state, const struct wined3d_d3d_info *d
             sizeof(*state->fb.render_targets) * gl_info->limits.buffers)))
     {
         HeapFree(GetProcessHeap(), 0, state->ps_consts_f);
+        state->ps_consts_f = NULL;
         HeapFree(GetProcessHeap(), 0, state->vs_consts_f);
+        state->vs_consts_f = NULL;
         return E_OUTOFMEMORY;
     }
     state->fb.rt_size = gl_info->limits.buffers;
@@ -666,7 +670,7 @@ ULONG CDECL wined3d_stateblock_decref(struct wined3d_stateblock *stateblock)
 
     if (!refcount)
     {
-        state_cleanup(&stateblock->state);
+        state_cleanup(&stateblock->state, TRUE);
 
         HeapFree(GetProcessHeap(), 0, stateblock->changed.vertexShaderConstantsF);
         HeapFree(GetProcessHeap(), 0, stateblock->changed.pixelShaderConstantsF);
@@ -1464,7 +1468,7 @@ static HRESULT stateblock_init(struct wined3d_stateblock *stateblock,
 
     if (FAILED(hr = stateblock_allocate_shader_constants(stateblock)))
     {
-        state_cleanup(&stateblock->state);
+        state_cleanup(&stateblock->state, FALSE);
         return hr;
     }
 

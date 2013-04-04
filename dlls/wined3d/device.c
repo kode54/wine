@@ -492,7 +492,7 @@ ULONG CDECL wined3d_device_decref(struct wined3d_device *device)
             FIXME("Something's still holding the recording stateblock.\n");
         device->recording = NULL;
 
-        state_cleanup(&device->state);
+        state_cleanup(&device->state, TRUE);
 
         for (i = 0; i < sizeof(device->multistate_funcs) / sizeof(device->multistate_funcs[0]); ++i)
         {
@@ -3484,6 +3484,7 @@ HRESULT CDECL wined3d_device_clear(struct wined3d_device *device, DWORD rect_cou
         }
     }
 
+    wined3d_cs_emit_transfer_stateblock(device->cs, &device->state);
     wined3d_cs_emit_clear(device->cs, rect_count, rects, flags, color, depth, stencil);
 
     return WINED3D_OK;
@@ -3531,6 +3532,7 @@ HRESULT CDECL wined3d_device_draw_primitive(struct wined3d_device *device, UINT 
         device_invalidate_state(device, STATE_BASEVERTEXINDEX);
     }
 
+    wined3d_cs_emit_transfer_stateblock(device->cs, &device->state);
     wined3d_cs_emit_draw(device->cs, start_vertex, vertex_count, 0, 0, FALSE);
     return WINED3D_OK;
 }
@@ -3564,6 +3566,7 @@ HRESULT CDECL wined3d_device_draw_indexed_primitive(struct wined3d_device *devic
         device_invalidate_state(device, STATE_BASEVERTEXINDEX);
     }
 
+    wined3d_cs_emit_transfer_stateblock(device->cs, &device->state);
     wined3d_cs_emit_draw(device->cs, start_idx, index_count, 0, 0, TRUE);
 
     return WINED3D_OK;
@@ -3574,6 +3577,7 @@ void CDECL wined3d_device_draw_indexed_primitive_instanced(struct wined3d_device
 {
     TRACE("device %p, start_idx %u, index_count %u.\n", device, start_idx, index_count);
 
+    wined3d_cs_emit_transfer_stateblock(device->cs, &device->state);
     wined3d_cs_emit_draw(device->cs, start_idx, index_count, start_instance, instance_count, TRUE);
 }
 
@@ -4710,7 +4714,7 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
             wined3d_stateblock_decref(device->recording);
             device->recording = NULL;
         }
-        state_cleanup(&device->state);
+        state_cleanup(&device->state, TRUE);
 
         if (device->d3d_initialized)
             delete_opengl_contexts(device, swapchain);
@@ -5005,7 +5009,7 @@ HRESULT device_init(struct wined3d_device *device, struct wined3d *wined3d,
     if (!(device->cs = wined3d_cs_create(device)))
     {
         WARN("Failed to create command stream.\n");
-        state_cleanup(&device->state);
+        state_cleanup(&device->state, TRUE);
         for (i = 0; i < sizeof(device->multistate_funcs) / sizeof(device->multistate_funcs[0]); ++i)
         {
             HeapFree(GetProcessHeap(), 0, device->multistate_funcs[i]);

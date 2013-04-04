@@ -2471,7 +2471,7 @@ struct wined3d_stateblock
 
 void stateblock_init_contained_states(struct wined3d_stateblock *stateblock) DECLSPEC_HIDDEN;
 
-void state_cleanup(struct wined3d_state *state) DECLSPEC_HIDDEN;
+void state_cleanup(struct wined3d_state *state, BOOL unbind) DECLSPEC_HIDDEN;
 HRESULT state_init(struct wined3d_state *state, const struct wined3d_d3d_info *d3d_info,
         const struct wined3d_gl_info *gl_info) DECLSPEC_HIDDEN;
 void state_init_default(struct wined3d_state *state, struct wined3d_device *device) DECLSPEC_HIDDEN;
@@ -2486,7 +2486,7 @@ struct wined3d_cs_block
 {
     struct list entry;
     UINT pos;
-    BYTE data[4000]; /* FIXME? The size is somewhat arbitrary. */
+    BYTE data[sizeof(struct wined3d_state) * 2]; /* FIXME? The size is somewhat arbitrary. */
 };
 
 struct wined3d_cs_ops
@@ -2510,6 +2510,8 @@ struct wined3d_cs
     UINT present_idx;
 #endif
     struct wined3d_device *device;
+
+    struct wined3d_state state;
 };
 
 struct wined3d_cs *wined3d_cs_create(struct wined3d_device *device) DECLSPEC_HIDDEN;
@@ -2522,6 +2524,8 @@ void wined3d_cs_emit_clear(struct wined3d_cs *cs, DWORD rect_count, const RECT *
         DWORD flags, const struct wined3d_color *color, float depth, DWORD stencil) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_draw(struct wined3d_cs *cs, UINT start_idx, UINT index_count,
         UINT start_instance, UINT instance_count, BOOL indexed) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs,
+        const struct wined3d_state *state) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d

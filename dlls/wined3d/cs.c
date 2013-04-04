@@ -27,6 +27,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_PRESENT,
     WINED3D_CS_OP_CLEAR,
     WINED3D_CS_OP_DRAW,
+    WINED3D_CS_OP_STATEBLOCK,
     WINED3D_CS_OP_STOP,
 };
 
@@ -75,6 +76,14 @@ struct wined3d_cs_draw
     UINT start_instance;
     UINT instance_count;
     BOOL indexed;
+};
+
+struct wined3d_cs_stateblock
+{
+    enum wined3d_cs_op opcode;
+    struct wined3d_state state;
+    struct wined3d_surface *render_targets[32]; /* FIXME. Should be enough for the transition though */
+    float vs_consts_f[256 * 4], ps_consts_f[256 * 4];
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -235,11 +244,11 @@ static UINT wined3d_cs_exec_clear(struct wined3d_cs *cs, const void *data)
 {
     const struct wined3d_cs_clear *op = data;
     struct wined3d_device *device = cs->device;
-    const struct wined3d_fb_state *fb = &device->state.fb;
+    const struct wined3d_fb_state *fb = &cs->state.fb;
     RECT draw_rect;
     unsigned int extra_rects = op->rect_count ? op->rect_count - 1 : 0;
 
-    wined3d_get_draw_rect(&device->state, &draw_rect);
+    wined3d_get_draw_rect(&cs->state, &draw_rect);
     device_clear_render_targets(device, device->adapter->gl_info.limits.buffers,
             fb, op->rect_count, op->rect_count ? op->rects : NULL, &draw_rect, op->flags,
             &op->color, op->depth, op->stencil);
@@ -270,7 +279,7 @@ static UINT wined3d_cs_exec_draw(struct wined3d_cs *cs, const void *data)
 {
     const struct wined3d_cs_draw *op = data;
 
-    draw_primitive(cs->device, &cs->device->state, op->start_idx, op->index_count,
+    draw_primitive(cs->device, &cs->state, op->start_idx, op->index_count,
             op->start_instance, op->instance_count, op->indexed);
 
     return sizeof(*op);
@@ -292,12 +301,147 @@ void wined3d_cs_emit_draw(struct wined3d_cs *cs, UINT start_idx, UINT index_coun
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_adapter *adapter = cs->device->adapter;
+    const struct wined3d_cs_stateblock *op = data;
+    unsigned int i;
+    UINT num_vs_consts_f = sizeof(op->vs_consts_f) / sizeof(*op->vs_consts_f) / 4;
+    UINT num_ps_consts_f = sizeof(op->ps_consts_f) / sizeof(*op->ps_consts_f) / 4;
+
+    num_vs_consts_f = min(num_vs_consts_f, adapter->d3d_info.limits.vs_uniform_count);
+    num_ps_consts_f = min(num_ps_consts_f, adapter->d3d_info.limits.ps_uniform_count);
+
+    /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
+     * ops for setting states */
+    for (i = 0; i < cs->state.fb.rt_size; i++)
+        cs->state.fb.render_targets[i] = op->state.fb.render_targets[i];
+    cs->state.fb.depth_stencil = op->state.fb.depth_stencil;
+
+    cs->state.vertex_declaration = op->state.vertex_declaration;
+    memcpy(cs->state.stream_output, op->state.stream_output, sizeof(cs->state.stream_output));
+    memcpy(cs->state.streams, op->state.streams, sizeof(cs->state.streams));
+    cs->state.index_buffer = op->state.index_buffer;
+    cs->state.index_format = op->state.index_format;
+    cs->state.base_vertex_index = op->state.base_vertex_index;
+    cs->state.load_base_vertex_index = op->state.load_base_vertex_index;
+    cs->state.gl_primitive_type = op->state.gl_primitive_type;
+
+    cs->state.vertex_shader = op->state.vertex_shader;
+    memcpy(cs->state.vs_cb, op->state.vs_cb, sizeof(cs->state.vs_cb));
+    memcpy(cs->state.vs_sampler, op->state.vs_sampler, sizeof(cs->state.vs_sampler));
+    memcpy(cs->state.vs_consts_b, op->state.vs_consts_b, sizeof(cs->state.vs_consts_b));
+    memcpy(cs->state.vs_consts_i, op->state.vs_consts_i, sizeof(cs->state.vs_consts_i));
+    memcpy(cs->state.vs_consts_f, op->state.vs_consts_f, sizeof(*cs->state.vs_consts_f) * num_vs_consts_f);
+
+    cs->state.geometry_shader = op->state.geometry_shader;
+    memcpy(cs->state.gs_cb, op->state.gs_cb, sizeof(cs->state.gs_cb));
+    memcpy(cs->state.gs_sampler, op->state.gs_sampler, sizeof(cs->state.gs_sampler));
+
+    cs->state.pixel_shader = op->state.pixel_shader;
+    memcpy(cs->state.ps_cb, op->state.ps_cb, sizeof(cs->state.ps_cb));
+    memcpy(cs->state.ps_sampler, op->state.ps_sampler, sizeof(cs->state.ps_sampler));
+    memcpy(cs->state.ps_consts_b, op->state.ps_consts_b, sizeof(cs->state.ps_consts_b));
+    memcpy(cs->state.ps_consts_i, op->state.ps_consts_i, sizeof(cs->state.ps_consts_i));
+    memcpy(cs->state.ps_consts_f, op->state.ps_consts_f, sizeof(*cs->state.ps_consts_f) * num_ps_consts_f);
+
+    memcpy(cs->state.textures, op->state.textures, sizeof(cs->state.textures));
+    memcpy(cs->state.sampler_states, op->state.sampler_states, sizeof(cs->state.sampler_states));
+    memcpy(cs->state.texture_states, op->state.texture_states, sizeof(cs->state.texture_states));
+    cs->state.lowest_disabled_stage = op->state.lowest_disabled_stage;
+
+    memcpy(cs->state.transforms, op->state.transforms, sizeof(cs->state.transforms));
+    memcpy(cs->state.clip_planes, op->state.clip_planes, sizeof(cs->state.clip_planes));
+    cs->state.material = op->state.material;
+    cs->state.viewport = op->state.viewport;
+    cs->state.scissor_rect = op->state.scissor_rect;
+
+    memcpy(cs->state.lights, op->state.lights, sizeof(cs->state.lights));
+
+    memcpy(cs->state.render_states, op->state.render_states, sizeof(cs->state.render_states));
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct wined3d_state *state)
+{
+    const struct wined3d_device *device = cs->device;
+    const struct wined3d_adapter *adapter = device->adapter;
+    struct wined3d_cs_stateblock *op;
+    unsigned int i;
+    UINT num_vs_consts_f = sizeof(op->vs_consts_f) / sizeof(*op->vs_consts_f) / 4;
+    UINT num_ps_consts_f = sizeof(op->ps_consts_f) / sizeof(*op->ps_consts_f) / 4;
+
+    num_vs_consts_f = min(num_vs_consts_f, adapter->d3d_info.limits.vs_uniform_count);
+    num_ps_consts_f = min(num_ps_consts_f, adapter->d3d_info.limits.ps_uniform_count);
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_STATEBLOCK;
+
+    /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
+     * ops for setting states */
+    op->state.fb.render_targets = op->render_targets;
+    op->state.fb.rt_size = sizeof(op->render_targets) / sizeof(*op->render_targets);
+    for (i = 0; i < state->fb.rt_size; i++)
+        op->render_targets[i] = state->fb.render_targets[i];
+    op->state.fb.depth_stencil = state->fb.depth_stencil;
+
+    op->state.vertex_declaration = state->vertex_declaration;
+    memcpy(op->state.stream_output, state->stream_output, sizeof(op->state.stream_output));
+    memcpy(op->state.streams, state->streams, sizeof(op->state.streams));
+    op->state.index_buffer = state->index_buffer;
+    op->state.index_format = state->index_format;
+    op->state.base_vertex_index = state->base_vertex_index;
+    op->state.load_base_vertex_index = state->load_base_vertex_index;
+    op->state.gl_primitive_type = state->gl_primitive_type;
+
+    op->state.vertex_shader = state->vertex_shader;
+    memcpy(op->state.vs_cb, state->vs_cb, sizeof(op->state.vs_cb));
+    memcpy(op->state.vs_sampler, state->vs_sampler, sizeof(op->state.vs_sampler));
+    memcpy(op->state.vs_consts_b, state->vs_consts_b, sizeof(op->state.vs_consts_b));
+    memcpy(op->state.vs_consts_i, state->vs_consts_i, sizeof(op->state.vs_consts_i));
+    op->state.vs_consts_f = op->vs_consts_f;
+    memcpy(op->state.vs_consts_f, state->vs_consts_f, sizeof(*op->state.vs_consts_f) * num_vs_consts_f);
+
+    op->state.geometry_shader = state->geometry_shader;
+    memcpy(op->state.gs_cb, state->gs_cb, sizeof(op->state.gs_cb));
+    memcpy(op->state.gs_sampler, state->gs_sampler, sizeof(op->state.gs_sampler));
+
+    op->state.pixel_shader = state->pixel_shader;
+    memcpy(op->state.ps_cb, state->ps_cb, sizeof(op->state.ps_cb));
+    memcpy(op->state.ps_sampler, state->ps_sampler, sizeof(op->state.ps_sampler));
+    memcpy(op->state.ps_consts_b, state->ps_consts_b, sizeof(op->state.ps_consts_b));
+    memcpy(op->state.ps_consts_i, state->ps_consts_i, sizeof(op->state.ps_consts_i));
+    op->state.ps_consts_f = op->ps_consts_f;
+    memcpy(op->state.ps_consts_f, state->ps_consts_f, sizeof(*op->state.ps_consts_f) * num_ps_consts_f);
+
+    memcpy(op->state.textures, state->textures, sizeof(op->state.textures));
+    memcpy(op->state.sampler_states, state->sampler_states, sizeof(op->state.sampler_states));
+    memcpy(op->state.texture_states, state->texture_states, sizeof(op->state.texture_states));
+    op->state.lowest_disabled_stage = state->lowest_disabled_stage;
+
+    memcpy(op->state.transforms, state->transforms, sizeof(op->state.transforms));
+    memcpy(op->state.clip_planes, state->clip_planes, sizeof(op->state.clip_planes));
+    op->state.material = state->material;
+    op->state.viewport = state->viewport;
+    op->state.scissor_rect = state->scissor_rect;
+
+    /* FIXME: This is not ideal. CS is still running synchronously, so this is ok.
+     * It will go away soon anyway. */
+    memcpy(op->state.lights, state->lights, sizeof(op->state.lights));
+
+    memcpy(op->state.render_states, state->render_states, sizeof(op->state.render_states));
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
     /* WINED3D_CS_OP_PRESENT                */ wined3d_cs_exec_present,
     /* WINED3D_CS_OP_CLEAR                  */ wined3d_cs_exec_clear,
     /* WINED3D_CS_OP_DRAW                   */ wined3d_cs_exec_draw,
+    /* WINED3D_CS_OP_STATEBLOCK             */ wined3d_cs_exec_transfer_stateblock,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
@@ -443,7 +587,10 @@ done:
  * sure that we'd gain anything from that though. */
 struct wined3d_cs *wined3d_cs_create(struct wined3d_device *device)
 {
-    struct wined3d_cs *cs;
+    struct wined3d_cs *cs = NULL;
+    const struct wined3d_adapter *adapter = device->adapter;
+    const struct wined3d_d3d_info *d3d_info = &adapter->d3d_info;
+    const struct wined3d_gl_info *gl_info = &adapter->gl_info;
     DWORD ret;
 
     if (!(cs = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*cs))))
@@ -455,8 +602,13 @@ struct wined3d_cs *wined3d_cs_create(struct wined3d_device *device)
     if ((cs->tls_idx = TlsAlloc()) == TLS_OUT_OF_INDEXES)
     {
         ERR("Failed to allocate cs TLS index, err %#x.\n", GetLastError());
-        HeapFree(GetProcessHeap(), 0, cs);
-        return NULL;
+        goto err;
+    }
+
+    if (FAILED(state_init(&cs->state, d3d_info, gl_info)))
+    {
+        ERR("Failed to init state\n");
+        goto err;
     }
 
     if (wined3d_settings.cs_multithreaded)
@@ -467,10 +619,7 @@ struct wined3d_cs *wined3d_cs_create(struct wined3d_device *device)
         if (!(cs->thread = CreateThread(NULL, 0, wined3d_cs_run, cs, 0, &ret)))
         {
             ERR("Failed to create wined3d command stream thread.\n");
-            if (!TlsFree(cs->tls_idx))
-                ERR("Failed to free cs TLS index, err %#x.\n", GetLastError());
-            HeapFree(GetProcessHeap(), 0, cs);
-            return NULL;
+            goto err;
         }
 
         cs->ops = &wined3d_cs_mt_ops;
@@ -482,6 +631,13 @@ struct wined3d_cs *wined3d_cs_create(struct wined3d_device *device)
     cs->device = device;
 
     return cs;
+
+err:
+    state_cleanup(&cs->state, FALSE);
+    if (cs->tls_idx != TLS_OUT_OF_INDEXES && !TlsFree(cs->tls_idx))
+        ERR("Failed to free cs TLS index, err %#x.\n", GetLastError());
+    HeapFree(GetProcessHeap(), 0, cs);
+    return NULL;
 }
 
 void wined3d_cs_destroy(struct wined3d_cs *cs)
@@ -503,6 +659,11 @@ void wined3d_cs_destroy(struct wined3d_cs *cs)
         wined3d_cs_list_cleanup(&cs->free_list);
 #endif
     }
+
+    /* The cs does not hold references to its bound, resources because this would delay
+     * resource destruction and private data release, until the CS releases its reference,
+     * making the CS visible to the client libraries and applications. */
+    state_cleanup(&cs->state, FALSE);
 
     if (!TlsFree(cs->tls_idx))
         ERR("Failed to free cs TLS index, err %#x.\n", GetLastError());
