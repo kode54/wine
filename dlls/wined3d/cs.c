@@ -31,6 +31,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_RENDER_TARGET,
     WINED3D_CS_OP_SET_VS_CONSTS_F,
     WINED3D_CS_OP_SET_PS_CONSTS_F,
+    WINED3D_CS_OP_RESET_STATE,
     WINED3D_CS_OP_STOP,
 };
 
@@ -99,6 +100,11 @@ struct wined3d_cs_set_consts_f
     enum wined3d_cs_op opcode;
     UINT start_register, vector4f_count;
     float constants[4];
+};
+
+struct wined3d_cs_reset_state
+{
+    enum wined3d_cs_op opcode;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -503,6 +509,25 @@ void wined3d_cs_emit_set_consts_f(struct wined3d_cs *cs, UINT start_register,
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_reset_state(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_reset_state *op = data;
+
+    state_init_default(&cs->state, cs->device);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_reset_state(struct wined3d_cs *cs)
+{
+    struct wined3d_cs_reset_state *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_RESET_STATE;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -513,6 +538,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_RENDER_TARGET      */ wined3d_cs_exec_set_render_target,
     /* WINED3D_CS_OP_SET_VS_CONSTS_F        */ wined3d_cs_exec_set_vs_consts_f,
     /* WINED3D_CS_OP_SET_PS_CONSTS_F        */ wined3d_cs_exec_set_ps_consts_f,
+    /* WINED3D_CS_OP_RESET_STATE            */ wined3d_cs_exec_reset_state,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
