@@ -2058,7 +2058,7 @@ void CDECL wined3d_device_set_vertex_declaration(struct wined3d_device *device,
         return;
     }
 
-    device_invalidate_state(device, STATE_VDECL);
+    wined3d_cs_emit_set_vertex_declaration(device->cs, declaration);
 }
 
 struct wined3d_vertex_declaration * CDECL wined3d_device_get_vertex_declaration(const struct wined3d_device *device)

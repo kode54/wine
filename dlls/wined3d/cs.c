@@ -36,6 +36,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_VIEWPORT,
     WINED3D_CS_OP_SET_SCISSOR_RECT,
     WINED3D_CS_OP_SET_DEPTH_STENCIL,
+    WINED3D_CS_OP_SET_VERTEX_DECLARATION,
     WINED3D_CS_OP_STOP,
 };
 
@@ -132,6 +133,12 @@ struct wined3d_cs_set_depth_stencil
 {
     enum wined3d_cs_op opcode;
     struct wined3d_surface *depth_stencil;
+};
+
+struct wined3d_cs_set_vertex_declaration
+{
+    enum wined3d_cs_op opcode;
+    struct wined3d_vertex_declaration *declaration;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -356,7 +363,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
 
     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
      * ops for setting states */
-    cs->state.vertex_declaration = op->state.vertex_declaration;
     memcpy(cs->state.stream_output, op->state.stream_output, sizeof(cs->state.stream_output));
     memcpy(cs->state.streams, op->state.streams, sizeof(cs->state.streams));
     cs->state.index_buffer = op->state.index_buffer;
@@ -406,7 +412,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
 
     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
      * ops for setting states */
-    op->state.vertex_declaration = state->vertex_declaration;
     memcpy(op->state.stream_output, state->stream_output, sizeof(op->state.stream_output));
     memcpy(op->state.streams, state->streams, sizeof(op->state.streams));
     op->state.index_buffer = state->index_buffer;
@@ -667,6 +672,28 @@ void wined3d_cs_emit_set_depth_stencil(struct wined3d_cs *cs, struct wined3d_sur
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_vertex_declaration(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_vertex_declaration *op = data;
+
+    cs->state.vertex_declaration = op->declaration;
+    device_invalidate_state(cs->device, STATE_VDECL);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_vertex_declaration(struct wined3d_cs *cs,
+        struct wined3d_vertex_declaration *declaration)
+{
+    struct wined3d_cs_set_vertex_declaration *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SET_VERTEX_DECLARATION;
+    op->declaration = declaration;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -682,6 +709,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_VIEWPORT           */ wined3d_cs_exec_set_viewport,
     /* WINED3D_CS_OP_SET_SCISSOR_RECT       */ wined3d_cs_exec_set_scissor_rect,
     /* WINED3D_CS_OP_SET_DEPTH_STENCIL      */ wined3d_cs_exec_set_depth_stencil,
+    /* WINED3D_CS_OP_SET_VERTEX_DECLARATION */ wined3d_cs_exec_set_vertex_declaration,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
