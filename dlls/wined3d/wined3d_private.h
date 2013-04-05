@@ -2537,6 +2537,8 @@ void wined3d_cs_emit_glfinish(struct wined3d_cs *cs) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_set_viewport(struct wined3d_cs *cs,
         const struct wined3d_viewport *vp) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_set_scissor_rect(struct wined3d_cs *cs, const RECT *rect) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_set_depth_stencil(struct wined3d_cs *cs,
+        struct wined3d_surface *depth_stencil) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d

@@ -35,6 +35,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_GLFINISH,
     WINED3D_CS_OP_SET_VIEWPORT,
     WINED3D_CS_OP_SET_SCISSOR_RECT,
+    WINED3D_CS_OP_SET_DEPTH_STENCIL,
     WINED3D_CS_OP_STOP,
 };
 
@@ -125,6 +126,12 @@ struct wined3d_cs_set_scissor_rect
 {
     enum wined3d_cs_op opcode;
     RECT rect;
+};
+
+struct wined3d_cs_set_depth_stencil
+{
+    enum wined3d_cs_op opcode;
+    struct wined3d_surface *depth_stencil;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -349,8 +356,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
 
     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
      * ops for setting states */
-    cs->state.fb.depth_stencil = op->state.fb.depth_stencil;
-
     cs->state.vertex_declaration = op->state.vertex_declaration;
     memcpy(cs->state.stream_output, op->state.stream_output, sizeof(cs->state.stream_output));
     memcpy(cs->state.streams, op->state.streams, sizeof(cs->state.streams));
@@ -401,8 +406,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
 
     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
      * ops for setting states */
-    op->state.fb.depth_stencil = state->fb.depth_stencil;
-
     op->state.vertex_declaration = state->vertex_declaration;
     memcpy(op->state.stream_output, state->stream_output, sizeof(op->state.stream_output));
     memcpy(op->state.streams, state->streams, sizeof(op->state.streams));
@@ -612,6 +615,58 @@ void wined3d_cs_emit_set_scissor_rect(struct wined3d_cs *cs, const RECT *rect)
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_depth_stencil(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_depth_stencil *op = data;
+    struct wined3d_surface *prev = cs->state.fb.depth_stencil;
+    struct wined3d_device *device = cs->device;
+
+    if (prev)
+    {
+        if (device->swapchains[0]->desc.flags & WINED3DPRESENTFLAG_DISCARD_DEPTHSTENCIL
+                || prev->flags & SFLAG_DISCARD)
+        {
+            surface_modify_ds_location(prev, SFLAG_DISCARDED,
+                    prev->resource.width, prev->resource.height);
+            if (prev == device->onscreen_depth_stencil)
+            {
+                wined3d_surface_decref(device->onscreen_depth_stencil);
+                device->onscreen_depth_stencil = NULL;
+            }
+        }
+    }
+
+    cs->state.fb.depth_stencil = op->depth_stencil;
+
+    if (!prev != !op->depth_stencil)
+    {
+        /* Swapping NULL / non NULL depth stencil affects the depth and tests */
+        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_ZENABLE));
+        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_STENCILENABLE));
+        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_STENCILWRITEMASK));
+        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_DEPTHBIAS));
+    }
+    else if (prev && prev->resource.format->depth_size != op->depth_stencil->resource.format->depth_size)
+    {
+        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_DEPTHBIAS));
+    }
+
+    device_invalidate_state(device, STATE_FRAMEBUFFER);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_depth_stencil(struct wined3d_cs *cs, struct wined3d_surface *depth_stencil)
+{
+    struct wined3d_cs_set_depth_stencil *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SET_DEPTH_STENCIL;
+    op->depth_stencil = depth_stencil;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -626,6 +681,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_GLFINISH               */ wined3d_cs_exec_glfinish,
     /* WINED3D_CS_OP_SET_VIEWPORT           */ wined3d_cs_exec_set_viewport,
     /* WINED3D_CS_OP_SET_SCISSOR_RECT       */ wined3d_cs_exec_set_scissor_rect,
+    /* WINED3D_CS_OP_SET_DEPTH_STENCIL      */ wined3d_cs_exec_set_depth_stencil,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
