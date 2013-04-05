@@ -628,10 +628,10 @@ static UINT wined3d_cs_exec_set_depth_stencil(struct wined3d_cs *cs, const void 
         {
             surface_modify_ds_location(prev, SFLAG_DISCARDED,
                     prev->resource.width, prev->resource.height);
-            if (prev == device->onscreen_depth_stencil)
+            if (prev == cs->onscreen_depth_stencil)
             {
-                wined3d_surface_decref(device->onscreen_depth_stencil);
-                device->onscreen_depth_stencil = NULL;
+                wined3d_surface_decref(cs->onscreen_depth_stencil);
+                cs->onscreen_depth_stencil = NULL;
             }
         }
     }
@@ -788,6 +788,22 @@ static const struct wined3d_cs_ops wined3d_cs_st_ops =
     wined3d_cs_st_submit,
     wined3d_cs_st_submit,
 };
+
+void wined3d_cs_switch_onscreen_ds(struct wined3d_cs *cs,
+        struct wined3d_context *context, struct wined3d_surface *depth_stencil)
+{
+    if (cs->onscreen_depth_stencil)
+    {
+        surface_load_ds_location(cs->onscreen_depth_stencil, context, SFLAG_INTEXTURE);
+
+        surface_modify_ds_location(cs->onscreen_depth_stencil, SFLAG_INTEXTURE,
+                cs->onscreen_depth_stencil->ds_current_size.cx,
+                cs->onscreen_depth_stencil->ds_current_size.cy);
+        wined3d_surface_decref(cs->onscreen_depth_stencil);
+    }
+    cs->onscreen_depth_stencil = depth_stencil;
+    wined3d_surface_incref(cs->onscreen_depth_stencil);
+}
 
 static DWORD WINAPI wined3d_cs_run(void *thread_param)
 {

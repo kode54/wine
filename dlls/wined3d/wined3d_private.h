@@ -1935,13 +1935,10 @@ struct wined3d_device
 
     struct wined3d_swapchain **swapchains;
     UINT swapchain_count;
+    struct wined3d_surface *auto_depth_stencil;
 
     struct list             resources; /* a linked list to track resources created by the device */
     struct list             shaders;   /* a linked list to track shaders (pixel and vertex)      */
-
-    /* Render Target Support */
-    struct wined3d_surface *onscreen_depth_stencil;
-    struct wined3d_surface *auto_depth_stencil;
 
     /* For rendering to a texture using glCopyTexImage */
     GLuint                  depth_blt_texture;
@@ -1984,8 +1981,6 @@ LRESULT device_process_message(struct wined3d_device *device, HWND window, BOOL 
         UINT message, WPARAM wparam, LPARAM lparam, WNDPROC proc) DECLSPEC_HIDDEN;
 void device_resource_add(struct wined3d_device *device, struct wined3d_resource *resource) DECLSPEC_HIDDEN;
 void device_resource_released(struct wined3d_device *device, struct wined3d_resource *resource) DECLSPEC_HIDDEN;
-void device_switch_onscreen_ds(struct wined3d_device *device, struct wined3d_context *context,
-        struct wined3d_surface *depth_stencil) DECLSPEC_HIDDEN;
 void device_invalidate_state(const struct wined3d_device *device, DWORD state) DECLSPEC_HIDDEN;
 
 static inline BOOL isStateDirty(const struct wined3d_context *context, DWORD state)
@@ -2512,12 +2507,14 @@ struct wined3d_cs
     UINT present_idx;
 #endif
     struct wined3d_device *device;
-
+    struct wined3d_surface *onscreen_depth_stencil;
     struct wined3d_state state;
 };
 
 struct wined3d_cs *wined3d_cs_create(struct wined3d_device *device) DECLSPEC_HIDDEN;
 void wined3d_cs_destroy(struct wined3d_cs *cs) DECLSPEC_HIDDEN;
+void wined3d_cs_switch_onscreen_ds(struct wined3d_cs *cs, struct wined3d_context *context,
+        struct wined3d_surface *depth_stencil) DECLSPEC_HIDDEN;
 
 void wined3d_cs_emit_present(struct wined3d_cs *cs, struct wined3d_swapchain *swapchain,
         const RECT *src_rect, const RECT *dst_rect, HWND dst_window_override,
