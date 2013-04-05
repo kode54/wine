@@ -1900,7 +1900,7 @@ void CDECL wined3d_device_set_viewport(struct wined3d_device *device, const stru
         return;
     }
 
-    device_invalidate_state(device, STATE_VIEWPORT);
+    wined3d_cs_emit_set_viewport(device->cs, viewport);
 }
 
 void CDECL wined3d_device_get_viewport(const struct wined3d_device *device, struct wined3d_viewport *viewport)
@@ -4052,7 +4052,7 @@ HRESULT CDECL wined3d_device_set_render_target(struct wined3d_device *device,
         state->viewport.height = render_target->resource.height;
         state->viewport.min_z = 0.0f;
         state->viewport.max_z = 1.0f;
-        device_invalidate_state(device, STATE_VIEWPORT);
+        wined3d_cs_emit_set_viewport(device->cs, &state->viewport);
 
         state->scissor_rect.top = 0;
         state->scissor_rect.left = 0;
@@ -4785,7 +4785,7 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
         state->viewport.y = 0;
         state->viewport.width = new_rt->resource.width;
         state->viewport.height = new_rt->resource.height;
-        device_invalidate_state(device, STATE_VIEWPORT);
+        wined3d_cs_emit_set_viewport(device->cs, &state->viewport);
 
         state->scissor_rect.top = 0;
         state->scissor_rect.left = 0;

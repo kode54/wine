@@ -33,6 +33,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_PS_CONSTS_F,
     WINED3D_CS_OP_RESET_STATE,
     WINED3D_CS_OP_GLFINISH,
+    WINED3D_CS_OP_SET_VIEWPORT,
     WINED3D_CS_OP_STOP,
 };
 
@@ -111,6 +112,12 @@ struct wined3d_cs_reset_state
 struct wined3d_cs_finish
 {
     enum wined3d_cs_op opcode;
+};
+
+struct wined3d_cs_set_viewport
+{
+    enum wined3d_cs_op opcode;
+    struct wined3d_viewport viewport;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -370,7 +377,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
     memcpy(cs->state.transforms, op->state.transforms, sizeof(cs->state.transforms));
     memcpy(cs->state.clip_planes, op->state.clip_planes, sizeof(cs->state.clip_planes));
     cs->state.material = op->state.material;
-    cs->state.viewport = op->state.viewport;
     cs->state.scissor_rect = op->state.scissor_rect;
 
     memcpy(cs->state.lights, op->state.lights, sizeof(cs->state.lights));
@@ -424,7 +430,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
     memcpy(op->state.transforms, state->transforms, sizeof(op->state.transforms));
     memcpy(op->state.clip_planes, state->clip_planes, sizeof(op->state.clip_planes));
     op->state.material = state->material;
-    op->state.viewport = state->viewport;
     op->state.scissor_rect = state->scissor_rect;
 
     /* FIXME: This is not ideal. CS is still running synchronously, so this is ok.
@@ -558,6 +563,28 @@ void wined3d_cs_emit_glfinish(struct wined3d_cs *cs)
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_viewport(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_viewport *op = data;
+    struct wined3d_device *device = cs->device;
+
+    cs->state.viewport = op->viewport;
+    device_invalidate_state(device, STATE_VIEWPORT);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_viewport(struct wined3d_cs *cs, const struct wined3d_viewport *vp)
+{
+    struct wined3d_cs_set_viewport *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SET_VIEWPORT;
+    op->viewport = *vp;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -570,6 +597,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_PS_CONSTS_F        */ wined3d_cs_exec_set_ps_consts_f,
     /* WINED3D_CS_OP_RESET_STATE            */ wined3d_cs_exec_reset_state,
     /* WINED3D_CS_OP_GLFINISH               */ wined3d_cs_exec_glfinish,
+    /* WINED3D_CS_OP_SET_VIEWPORT           */ wined3d_cs_exec_set_viewport,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
