@@ -889,10 +889,7 @@ HRESULT CDECL wined3d_device_init_3d(struct wined3d_device *device,
         wined3d_device_set_render_target(device, 0, swapchain->front_buffer, FALSE);
     }
 
-    /* Depth Stencil support */
-    device->state.fb.depth_stencil = device->auto_depth_stencil;
-    if (device->state.fb.depth_stencil)
-        wined3d_surface_incref(device->state.fb.depth_stencil);
+    wined3d_device_set_depth_stencil(device, device->auto_depth_stencil);
 
     /* Set up some starting GL setup */
 
