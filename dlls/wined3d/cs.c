@@ -47,6 +47,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_TEXTURE,
     WINED3D_CS_OP_SET_VERTEX_SHADER,
     WINED3D_CS_OP_SET_PIXEL_SHADER,
+    WINED3D_CS_OP_SET_GEOMETRY_SHADER,
     WINED3D_CS_OP_SET_RENDER_STATE,
     WINED3D_CS_OP_SET_TEXTURE_STATE,
     WINED3D_CS_OP_SET_SAMPLER_STATE,
@@ -524,8 +525,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
      * ops for setting states */
     memcpy(cs->state.stream_output, op->state.stream_output, sizeof(cs->state.stream_output));
 
-    cs->state.geometry_shader = op->state.geometry_shader;
-
     memcpy(cs->state.lights, op->state.lights, sizeof(cs->state.lights));
 
     return sizeof(*op);
@@ -541,8 +540,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
      * ops for setting states */
     memcpy(op->state.stream_output, state->stream_output, sizeof(op->state.stream_output));
-
-    op->state.geometry_shader = state->geometry_shader;
 
     /* FIXME: This is not ideal. CS is still running synchronously, so this is ok.
      * It will go away soon anyway. */
@@ -1110,6 +1107,27 @@ void wined3d_cs_emit_set_pixel_shader(struct wined3d_cs *cs, struct wined3d_shad
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_geometry_shader(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_shader *op = data;
+
+    cs->state.geometry_shader = op->shader;
+    device_invalidate_state(cs->device, STATE_GEOMETRY_SHADER);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_geometry_shader(struct wined3d_cs *cs, struct wined3d_shader *shader)
+{
+    struct wined3d_cs_set_shader *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SET_GEOMETRY_SHADER;
+    op->shader = shader;
+
+    cs->ops->submit(cs);
+}
+
 static UINT wined3d_cs_exec_set_render_state(struct wined3d_cs *cs, const void *data)
 {
     const struct wined3d_cs_set_render_state *op = data;
@@ -1502,6 +1520,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_TEXTURE            */ wined3d_cs_exec_set_texture,
     /* WINED3D_CS_OP_SET_VERTEX_SHADER      */ wined3d_cs_exec_set_vertex_shader,
     /* WINED3D_CS_OP_SET_PIXEL_SHADER       */ wined3d_cs_exec_set_pixel_shader,
+    /* WINED3D_CS_OP_SET_GEOMETRY_SHADER    */ wined3d_cs_exec_set_geometry_shader,
     /* WINED3D_CS_OP_SET_RENDER_STATE       */ wined3d_cs_exec_set_render_state,
     /* WINED3D_CS_OP_SET_TEXTURE_STATE      */ wined3d_cs_exec_set_texture_state,
     /* WINED3D_CS_OP_SET_SAMPLER_STATE      */ wined3d_cs_exec_set_sampler_state,
