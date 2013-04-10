@@ -1118,28 +1118,19 @@ void CDECL wined3d_device_set_stream_output(struct wined3d_device *device, UINT 
     device->update_state->stream_output[idx].buffer = buffer;
     device->update_state->stream_output[idx].offset = offset;
 
-    if (device->recording)
-    {
-        if (buffer)
-            wined3d_buffer_incref(buffer);
-        if (prev_buffer)
-            wined3d_buffer_decref(prev_buffer);
+    if (prev_buffer == buffer)
         return;
-    }
 
-    if (prev_buffer != buffer)
-    {
-        if (buffer)
-        {
-            InterlockedIncrement(&buffer->resource.bind_count);
-            wined3d_buffer_incref(buffer);
-        }
-        if (prev_buffer)
-        {
-            InterlockedDecrement(&prev_buffer->resource.bind_count);
-            wined3d_buffer_decref(prev_buffer);
-        }
-    }
+    if (buffer)
+        wined3d_buffer_incref(buffer);
+
+    if (device->recording)
+        TRACE("Recording... not performing anything.\n");
+    else
+        wined3d_cs_emit_set_stream_output(device->cs, idx, buffer, offset);
+
+    if (prev_buffer)
+        wined3d_buffer_decref(prev_buffer);
 }
 
 struct wined3d_buffer * CDECL wined3d_device_get_stream_output(struct wined3d_device *device,

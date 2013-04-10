@@ -62,6 +62,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_VS_SAMPLER,
     WINED3D_CS_OP_SET_PS_SAMPLER,
     WINED3D_CS_OP_SET_GS_SAMPLER,
+    WINED3D_CS_OP_SET_STREAM_OUTPUT,
     WINED3D_CS_OP_STOP,
 };
 
@@ -284,6 +285,13 @@ struct wined3d_cs_set_sampler
     enum wined3d_cs_op opcode;
     UINT idx;
     struct wined3d_sampler *sampler;
+};
+
+struct wined3d_cs_set_stream_output
+{
+    enum wined3d_cs_op opcode;
+    UINT idx, offset;
+    struct wined3d_buffer *buffer;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -521,10 +529,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
 {
     const struct wined3d_cs_stateblock *op = data;
 
-    /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
-     * ops for setting states */
-    memcpy(cs->state.stream_output, op->state.stream_output, sizeof(cs->state.stream_output));
-
     memcpy(cs->state.lights, op->state.lights, sizeof(cs->state.lights));
 
     return sizeof(*op);
@@ -536,10 +540,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
 
     op = cs->ops->require_space(cs, sizeof(*op));
     op->opcode = WINED3D_CS_OP_STATEBLOCK;
-
-    /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
-     * ops for setting states */
-    memcpy(op->state.stream_output, state->stream_output, sizeof(op->state.stream_output));
 
     /* FIXME: This is not ideal. CS is still running synchronously, so this is ok.
      * It will go away soon anyway. */
@@ -1494,6 +1494,37 @@ void wined3d_cs_emit_set_sampler(struct wined3d_cs *cs, UINT idx, struct wined3d
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_stream_output(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_stream_output *op = data;
+    struct wined3d_buffer *prev = cs->state.stream_output[op->idx].buffer;
+
+    if (op->buffer)
+        InterlockedIncrement(&op->buffer->resource.bind_count);
+
+    cs->state.stream_output[op->idx].buffer = op->buffer;
+    cs->state.stream_output[op->idx].offset = op->offset;
+
+    if (op->buffer)
+        InterlockedDecrement(&prev->resource.bind_count);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_stream_output(struct wined3d_cs *cs, UINT idx,
+        struct wined3d_buffer *buffer, UINT offset)
+{
+    struct wined3d_cs_set_stream_output *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SET_STREAM_OUTPUT;
+    op->idx = idx;
+    op->buffer = buffer;
+    op->offset = offset;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -1535,6 +1566,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_VS_SAMPLER         */ wined3d_cs_exec_set_vs_sampler,
     /* WINED3D_CS_OP_SET_PS_SAMPLER         */ wined3d_cs_exec_set_ps_sampler,
     /* WINED3D_CS_OP_SET_GS_SAMPLER         */ wined3d_cs_exec_set_gs_sampler,
+    /* WINED3D_CS_OP_SET_STREAM_OUTPUT      */ wined3d_cs_exec_set_stream_output,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
