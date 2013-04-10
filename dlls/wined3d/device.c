@@ -978,6 +978,9 @@ HRESULT CDECL wined3d_device_uninit_3d(struct wined3d_device *device)
     if (!device->d3d_initialized)
         return WINED3DERR_INVALIDCALL;
 
+    if (wined3d_settings.cs_multithreaded)
+        device->cs->ops->finish(device->cs);
+
     /* Force making the context current again, to verify it is still valid
      * (workaround for broken drivers) */
     context_set_current(NULL);
