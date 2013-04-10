@@ -2104,28 +2104,19 @@ void CDECL wined3d_device_set_vs_cb(struct wined3d_device *device, UINT idx, str
     prev = device->update_state->vs_cb[idx];
     device->update_state->vs_cb[idx] = buffer;
 
-    if (device->recording)
-    {
-        if (buffer)
-            wined3d_buffer_incref(buffer);
-        if (prev)
-            wined3d_buffer_decref(prev);
+    if (prev == buffer)
         return;
-    }
 
-    if (prev != buffer)
-    {
-        if (buffer)
-        {
-            InterlockedIncrement(&buffer->resource.bind_count);
-            wined3d_buffer_incref(buffer);
-        }
-        if (prev)
-        {
-            InterlockedDecrement(&prev->resource.bind_count);
-            wined3d_buffer_decref(prev);
-        }
-    }
+    if (buffer)
+        wined3d_buffer_incref(buffer);
+
+    if (device->recording)
+        TRACE("Recording... not performing anything.\n");
+    else
+        wined3d_cs_emit_set_cb(device->cs, idx, buffer, WINED3D_SHADER_TYPE_VERTEX);
+
+    if (prev)
+        wined3d_buffer_decref(prev);
 }
 
 struct wined3d_buffer * CDECL wined3d_device_get_vs_cb(const struct wined3d_device *device, UINT idx)
@@ -2382,28 +2373,19 @@ void CDECL wined3d_device_set_ps_cb(struct wined3d_device *device, UINT idx, str
     prev = device->update_state->ps_cb[idx];
     device->update_state->ps_cb[idx] = buffer;
 
-    if (device->recording)
-    {
-        if (buffer)
-            wined3d_buffer_incref(buffer);
-        if (prev)
-            wined3d_buffer_decref(prev);
+    if (prev == buffer)
         return;
-    }
 
-    if (prev != buffer)
-    {
-        if (buffer)
-        {
-            InterlockedIncrement(&buffer->resource.bind_count);
-            wined3d_buffer_incref(buffer);
-        }
-        if (prev)
-        {
-            InterlockedDecrement(&prev->resource.bind_count);
-            wined3d_buffer_decref(prev);
-        }
-    }
+    if (buffer)
+        wined3d_buffer_incref(buffer);
+
+    if (device->recording)
+        TRACE("Recording... not performing anything.\n");
+    else
+        wined3d_cs_emit_set_cb(device->cs, idx, buffer, WINED3D_SHADER_TYPE_PIXEL);
+
+    if (prev)
+        wined3d_buffer_decref(prev);
 }
 
 struct wined3d_buffer * CDECL wined3d_device_get_ps_cb(const struct wined3d_device *device, UINT idx)
@@ -2641,28 +2623,19 @@ void CDECL wined3d_device_set_gs_cb(struct wined3d_device *device, UINT idx, str
     prev = device->update_state->gs_cb[idx];
     device->update_state->gs_cb[idx] = buffer;
 
-    if (device->recording)
-    {
-        if (buffer)
-            wined3d_buffer_incref(buffer);
-        if (prev)
-            wined3d_buffer_decref(prev);
+    if (prev == buffer)
         return;
-    }
 
-    if (prev != buffer)
-    {
-        if (buffer)
-        {
-            InterlockedIncrement(&buffer->resource.bind_count);
-            wined3d_buffer_incref(buffer);
-        }
-        if (prev)
-        {
-            InterlockedDecrement(&prev->resource.bind_count);
-            wined3d_buffer_decref(prev);
-        }
-    }
+    if (buffer)
+        wined3d_buffer_incref(buffer);
+
+    if (device->recording)
+        TRACE("Recording... not performing anything.\n");
+    else
+        wined3d_cs_emit_set_cb(device->cs, idx, buffer, WINED3D_SHADER_TYPE_GEOMETRY);
+
+    if (prev)
+        wined3d_buffer_decref(prev);
 }
 
 struct wined3d_buffer * CDECL wined3d_device_get_gs_cb(const struct wined3d_device *device, UINT idx)

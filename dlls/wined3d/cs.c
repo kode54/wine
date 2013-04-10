@@ -55,6 +55,9 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_MATERIAL,
     WINED3D_CS_OP_SET_BASE_VERTEX_INDEX,
     WINED3D_CS_OP_SET_PRIMITIVE_TYPE,
+    WINED3D_CS_OP_SET_VS_CB,
+    WINED3D_CS_OP_SET_PS_CB,
+    WINED3D_CS_OP_SET_GS_CB,
     WINED3D_CS_OP_STOP,
 };
 
@@ -263,6 +266,13 @@ struct wined3d_cs_set_primitive_type
 {
     enum wined3d_cs_op opcode;
     GLenum gl_primitive_type;
+};
+
+struct wined3d_cs_set_cb
+{
+    enum wined3d_cs_op opcode;
+    UINT idx;
+    struct wined3d_buffer *buffer;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -504,14 +514,11 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
      * ops for setting states */
     memcpy(cs->state.stream_output, op->state.stream_output, sizeof(cs->state.stream_output));
 
-    memcpy(cs->state.vs_cb, op->state.vs_cb, sizeof(cs->state.vs_cb));
     memcpy(cs->state.vs_sampler, op->state.vs_sampler, sizeof(cs->state.vs_sampler));
 
     cs->state.geometry_shader = op->state.geometry_shader;
-    memcpy(cs->state.gs_cb, op->state.gs_cb, sizeof(cs->state.gs_cb));
     memcpy(cs->state.gs_sampler, op->state.gs_sampler, sizeof(cs->state.gs_sampler));
 
-    memcpy(cs->state.ps_cb, op->state.ps_cb, sizeof(cs->state.ps_cb));
     memcpy(cs->state.ps_sampler, op->state.ps_sampler, sizeof(cs->state.ps_sampler));
 
     memcpy(cs->state.lights, op->state.lights, sizeof(cs->state.lights));
@@ -530,14 +537,11 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
      * ops for setting states */
     memcpy(op->state.stream_output, state->stream_output, sizeof(op->state.stream_output));
 
-    memcpy(op->state.vs_cb, state->vs_cb, sizeof(op->state.vs_cb));
     memcpy(op->state.vs_sampler, state->vs_sampler, sizeof(op->state.vs_sampler));
 
     op->state.geometry_shader = state->geometry_shader;
-    memcpy(op->state.gs_cb, state->gs_cb, sizeof(op->state.gs_cb));
     memcpy(op->state.gs_sampler, state->gs_sampler, sizeof(op->state.gs_sampler));
 
-    memcpy(op->state.ps_cb, state->ps_cb, sizeof(op->state.ps_cb));
     memcpy(op->state.ps_sampler, state->ps_sampler, sizeof(op->state.ps_sampler));
 
     /* FIXME: This is not ideal. CS is still running synchronously, so this is ok.
@@ -1348,6 +1352,79 @@ void wined3d_cs_emit_set_primitive_type(struct wined3d_cs *cs, GLenum primitive_
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_vs_cb(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_cb *op = data;
+    struct wined3d_buffer *prev = cs->state.vs_cb[op->idx];
+
+    if (op->buffer)
+        InterlockedIncrement(&op->buffer->resource.bind_count);
+
+    cs->state.vs_cb[op->idx] = op->buffer;
+
+    if (prev)
+        InterlockedDecrement(&prev->resource.bind_count);
+
+    return sizeof(*op);
+}
+
+static UINT wined3d_cs_exec_set_ps_cb(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_cb *op = data;
+    struct wined3d_buffer *prev = cs->state.ps_cb[op->idx];
+
+    if (op->buffer)
+        InterlockedIncrement(&op->buffer->resource.bind_count);
+
+    cs->state.ps_cb[op->idx] = op->buffer;
+
+    if (prev)
+        InterlockedDecrement(&prev->resource.bind_count);
+
+
+    return sizeof(*op);
+}
+
+static UINT wined3d_cs_exec_set_gs_cb(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_cb *op = data;
+    struct wined3d_buffer *prev = cs->state.gs_cb[op->idx];
+
+    if (op->buffer)
+        InterlockedIncrement(&op->buffer->resource.bind_count);
+
+    cs->state.gs_cb[op->idx] = op->buffer;
+
+    if (prev)
+        InterlockedDecrement(&prev->resource.bind_count);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_cb(struct wined3d_cs *cs, UINT idx, struct wined3d_buffer *buffer,
+        enum wined3d_shader_type type)
+{
+    struct wined3d_cs_set_cb *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    switch (type)
+    {
+        case WINED3D_SHADER_TYPE_VERTEX:
+            op->opcode = WINED3D_CS_OP_SET_VS_CB;
+            break;
+        case WINED3D_SHADER_TYPE_PIXEL:
+            op->opcode = WINED3D_CS_OP_SET_PS_CB;
+            break;
+        case WINED3D_SHADER_TYPE_GEOMETRY:
+            op->opcode = WINED3D_CS_OP_SET_GS_CB;
+            break;
+    }
+    op->idx = idx;
+    op->buffer = buffer;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -1382,6 +1459,9 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_MATERIAL           */ wined3d_cs_exec_set_material,
     /* WINED3D_CS_OP_SET_BASE_VERTEX_INDEX  */ wined3d_cs_exec_set_base_vertex_index,
     /* WINED3D_CS_OP_SET_PRIMITIVE_TYPE     */ wined3d_cs_exec_set_primitive_type,
+    /* WINED3D_CS_OP_SET_VS_CB              */ wined3d_cs_exec_set_vs_cb,
+    /* WINED3D_CS_OP_SET_PS_CB              */ wined3d_cs_exec_set_ps_cb,
+    /* WINED3D_CS_OP_SET_GS_CB              */ wined3d_cs_exec_set_gs_cb,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
