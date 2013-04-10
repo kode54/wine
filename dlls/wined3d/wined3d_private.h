@@ -2503,12 +2503,9 @@ struct wined3d_cs
     DWORD tls_idx;
     struct wined3d_cs_list free_list;
     struct wined3d_cs_list exec_list;
-    /* FIXME: We should throttle presents, to prevent the application from
-     * getting too far ahead of the GPU. 2 or 3 frames is probably still
-     * acceptable. */
-#if 0
-    UINT present_idx;
-#endif
+
+    LONG pending_presents;
+
     struct wined3d_device *device;
     struct wined3d_surface *onscreen_depth_stencil;
     struct wined3d_state state;
