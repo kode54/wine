@@ -58,6 +58,9 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_VS_CB,
     WINED3D_CS_OP_SET_PS_CB,
     WINED3D_CS_OP_SET_GS_CB,
+    WINED3D_CS_OP_SET_VS_SAMPLER,
+    WINED3D_CS_OP_SET_PS_SAMPLER,
+    WINED3D_CS_OP_SET_GS_SAMPLER,
     WINED3D_CS_OP_STOP,
 };
 
@@ -273,6 +276,13 @@ struct wined3d_cs_set_cb
     enum wined3d_cs_op opcode;
     UINT idx;
     struct wined3d_buffer *buffer;
+};
+
+struct wined3d_cs_set_sampler
+{
+    enum wined3d_cs_op opcode;
+    UINT idx;
+    struct wined3d_sampler *sampler;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -514,12 +524,7 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
      * ops for setting states */
     memcpy(cs->state.stream_output, op->state.stream_output, sizeof(cs->state.stream_output));
 
-    memcpy(cs->state.vs_sampler, op->state.vs_sampler, sizeof(cs->state.vs_sampler));
-
     cs->state.geometry_shader = op->state.geometry_shader;
-    memcpy(cs->state.gs_sampler, op->state.gs_sampler, sizeof(cs->state.gs_sampler));
-
-    memcpy(cs->state.ps_sampler, op->state.ps_sampler, sizeof(cs->state.ps_sampler));
 
     memcpy(cs->state.lights, op->state.lights, sizeof(cs->state.lights));
 
@@ -537,12 +542,7 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
      * ops for setting states */
     memcpy(op->state.stream_output, state->stream_output, sizeof(op->state.stream_output));
 
-    memcpy(op->state.vs_sampler, state->vs_sampler, sizeof(op->state.vs_sampler));
-
     op->state.geometry_shader = state->geometry_shader;
-    memcpy(op->state.gs_sampler, state->gs_sampler, sizeof(op->state.gs_sampler));
-
-    memcpy(op->state.ps_sampler, state->ps_sampler, sizeof(op->state.ps_sampler));
 
     /* FIXME: This is not ideal. CS is still running synchronously, so this is ok.
      * It will go away soon anyway. */
@@ -1425,6 +1425,57 @@ void wined3d_cs_emit_set_cb(struct wined3d_cs *cs, UINT idx, struct wined3d_buff
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_vs_sampler(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_sampler *op = data;
+
+    cs->state.vs_sampler[op->idx] = op->sampler;
+
+    return sizeof(*op);
+}
+
+static UINT wined3d_cs_exec_set_ps_sampler(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_sampler *op = data;
+
+    cs->state.ps_sampler[op->idx] = op->sampler;
+
+    return sizeof(*op);
+}
+
+static UINT wined3d_cs_exec_set_gs_sampler(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_sampler *op = data;
+
+    cs->state.gs_sampler[op->idx] = op->sampler;
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_sampler(struct wined3d_cs *cs, UINT idx, struct wined3d_sampler *sampler,
+        enum wined3d_shader_type type)
+{
+    struct wined3d_cs_set_sampler *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    switch (type)
+    {
+        case WINED3D_SHADER_TYPE_VERTEX:
+            op->opcode = WINED3D_CS_OP_SET_VS_SAMPLER;
+            break;
+        case WINED3D_SHADER_TYPE_PIXEL:
+            op->opcode = WINED3D_CS_OP_SET_PS_SAMPLER;
+            break;
+        case WINED3D_SHADER_TYPE_GEOMETRY:
+            op->opcode = WINED3D_CS_OP_SET_GS_SAMPLER;
+            break;
+    }
+    op->idx = idx;
+    op->sampler = sampler;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -1462,6 +1513,9 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_VS_CB              */ wined3d_cs_exec_set_vs_cb,
     /* WINED3D_CS_OP_SET_PS_CB              */ wined3d_cs_exec_set_ps_cb,
     /* WINED3D_CS_OP_SET_GS_CB              */ wined3d_cs_exec_set_gs_cb,
+    /* WINED3D_CS_OP_SET_VS_SAMPLER         */ wined3d_cs_exec_set_vs_sampler,
+    /* WINED3D_CS_OP_SET_PS_SAMPLER         */ wined3d_cs_exec_set_ps_sampler,
+    /* WINED3D_CS_OP_SET_GS_SAMPLER         */ wined3d_cs_exec_set_gs_sampler,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)

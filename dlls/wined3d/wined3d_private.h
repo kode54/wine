@@ -2569,6 +2569,8 @@ void wined3d_cs_emit_set_primitive_type(struct wined3d_cs *cs,
         GLenum primitive_type) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_set_cb(struct wined3d_cs *cs, UINT idx, struct wined3d_buffer *buffer,
         enum wined3d_shader_type type) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_set_sampler(struct wined3d_cs *cs, UINT idx, struct wined3d_sampler *sampler,
+        enum wined3d_shader_type type) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d

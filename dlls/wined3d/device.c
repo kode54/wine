@@ -2147,8 +2147,14 @@ void CDECL wined3d_device_set_vs_sampler(struct wined3d_device *device, UINT idx
     prev = device->update_state->vs_sampler[idx];
     device->update_state->vs_sampler[idx] = sampler;
 
+    if (prev == sampler)
+        return;
+
     if (sampler)
         wined3d_sampler_incref(sampler);
+
+    wined3d_cs_emit_set_sampler(device->cs, idx, sampler, WINED3D_SHADER_TYPE_VERTEX);
+
     if (prev)
         wined3d_sampler_decref(prev);
 }
@@ -2416,8 +2422,14 @@ void CDECL wined3d_device_set_ps_sampler(struct wined3d_device *device, UINT idx
     prev = device->update_state->ps_sampler[idx];
     device->update_state->ps_sampler[idx] = sampler;
 
+    if (prev == sampler)
+        return;
+
     if (sampler)
         wined3d_sampler_incref(sampler);
+
+    wined3d_cs_emit_set_sampler(device->cs, idx, sampler, WINED3D_SHADER_TYPE_PIXEL);
+
     if (prev)
         wined3d_sampler_decref(prev);
 }
@@ -2666,8 +2678,14 @@ void CDECL wined3d_device_set_gs_sampler(struct wined3d_device *device, UINT idx
     prev = device->update_state->gs_sampler[idx];
     device->update_state->gs_sampler[idx] = sampler;
 
+    if (sampler == prev)
+        return;
+
     if (sampler)
         wined3d_sampler_incref(sampler);
+
+    wined3d_cs_emit_set_sampler(device->cs, idx, sampler, WINED3D_SHADER_TYPE_GEOMETRY);
+
     if (prev)
         wined3d_sampler_decref(prev);
 }
