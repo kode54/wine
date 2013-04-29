@@ -1445,15 +1445,13 @@ static HRESULT wined3d_surface_depth_blt(struct wined3d_surface *src_surface, DW
     return WINED3D_OK;
 }
 
-/* Do not call while under the GL lock. */
-HRESULT CDECL wined3d_surface_blt(struct wined3d_surface *dst_surface, const RECT *dst_rect_in,
-        struct wined3d_surface *src_surface, const RECT *src_rect_in, DWORD flags,
+void surface_blt_ugly(struct wined3d_surface *dst_surface, const RECT *dst_rect,
+        struct wined3d_surface *src_surface, const RECT *src_rect, DWORD flags,
         const WINEDDBLTFX *fx, enum wined3d_texture_filter_type filter)
 {
     struct wined3d_swapchain *src_swapchain, *dst_swapchain;
     struct wined3d_device *device = dst_surface->resource.device;
     DWORD src_ds_flags, dst_ds_flags;
-    RECT src_rect, dst_rect;
     BOOL scale, convert;
 
     static const DWORD simple_blit = WINEDDBLT_ASYNC
@@ -1461,6 +1459,208 @@ HRESULT CDECL wined3d_surface_blt(struct wined3d_surface *dst_surface, const REC
             | WINEDDBLT_WAIT
             | WINEDDBLT_DEPTHFILL
             | WINEDDBLT_DONOTWAIT;
+
+    if (!device->d3d_initialized)
+    {
+        WARN("D3D not initialized, using fallback.\n");
+        goto cpu;
+    }
+
+    /* We want to avoid invalidating the sysmem location for converted
+     * surfaces, since otherwise we'd have to convert the data back when
+     * locking them. */
+    if (dst_surface->flags & SFLAG_CONVERTED)
+    {
+        WARN_(d3d_perf)("Converted surface, using CPU blit.\n");
+        surface_cpu_blt(dst_surface, dst_rect, src_surface, src_rect, flags, fx, filter);
+        return;
+    }
+
+    if (flags & ~simple_blit)
+    {
+        WARN_(d3d_perf)("Using fallback for complex blit (%#x).\n", flags);
+        goto fallback;
+    }
+
+    if (src_surface)
+        src_swapchain = src_surface->swapchain;
+    else
+        src_swapchain = NULL;
+
+    dst_swapchain = dst_surface->swapchain;
+
+    /* This isn't strictly needed. FBO blits for example could deal with
+     * cross-swapchain blits by first downloading the source to a texture
+     * before switching to the destination context. We just have this here to
+     * not have to deal with the issue, since cross-swapchain blits should be
+     * rare. */
+    if (src_swapchain && dst_swapchain && src_swapchain != dst_swapchain)
+    {
+        FIXME("Using fallback for cross-swapchain blit.\n");
+        goto fallback;
+    }
+
+    scale = src_surface
+            && (src_rect->right - src_rect->left != dst_rect->right - dst_rect->left
+            || src_rect->bottom - src_rect->top != dst_rect->bottom - dst_rect->top);
+    convert = src_surface && src_surface->resource.format->id != dst_surface->resource.format->id;
+
+    dst_ds_flags = dst_surface->resource.format->flags & (WINED3DFMT_FLAG_DEPTH | WINED3DFMT_FLAG_STENCIL);
+    if (src_surface)
+        src_ds_flags = src_surface->resource.format->flags & (WINED3DFMT_FLAG_DEPTH | WINED3DFMT_FLAG_STENCIL);
+    else
+        src_ds_flags = 0;
+
+    if (src_ds_flags || dst_ds_flags)
+    {
+        if (flags & WINEDDBLT_DEPTHFILL)
+        {
+            float depth;
+
+            TRACE("Depth fill.\n");
+
+            if (!surface_convert_depth_to_float(dst_surface, fx->u5.dwFillDepth, &depth))
+                return;
+
+            if (SUCCEEDED(wined3d_surface_depth_fill(dst_surface, dst_rect, depth)))
+                return;
+        }
+        else
+        {
+            if (SUCCEEDED(wined3d_surface_depth_blt(src_surface, src_surface->draw_binding, src_rect,
+                    dst_surface, dst_surface->draw_binding, dst_rect)))
+                return;
+        }
+    }
+    else
+    {
+        /* In principle this would apply to depth blits as well, but we don't
+         * implement those in the CPU blitter at the moment. */
+        if ((dst_surface->flags & SFLAG_INSYSMEM)
+                && (!src_surface || (src_surface->flags & SFLAG_INSYSMEM)))
+        {
+            if (scale)
+                TRACE("Not doing sysmem blit because of scaling.\n");
+            else if (convert)
+                TRACE("Not doing sysmem blit because of format conversion.\n");
+            else
+            {
+                surface_cpu_blt(dst_surface, dst_rect, src_surface, src_rect, flags, fx, filter);
+                return;
+            }
+        }
+
+        if (flags & WINEDDBLT_COLORFILL)
+        {
+            struct wined3d_color color;
+
+            TRACE("Color fill.\n");
+
+            if (!surface_convert_color_to_float(dst_surface, fx->u5.dwFillColor, &color))
+                goto fallback;
+
+            if (SUCCEEDED(surface_color_fill(dst_surface, dst_rect, &color)))
+                return;
+        }
+        else
+        {
+            TRACE("Color blit.\n");
+
+            /* Upload */
+            if ((src_surface->flags & SFLAG_INSYSMEM) && !(dst_surface->flags & SFLAG_INSYSMEM))
+            {
+                if (scale)
+                    TRACE("Not doing upload because of scaling.\n");
+                else if (convert)
+                    TRACE("Not doing upload because of format conversion.\n");
+                else
+                {
+                    POINT dst_point = {dst_rect->left, dst_rect->top};
+
+                    if (SUCCEEDED(surface_upload_from_surface(dst_surface, &dst_point, src_surface, src_rect)))
+                    {
+                        if (!surface_is_offscreen(dst_surface))
+                            surface_load_location(dst_surface, dst_surface->draw_binding, NULL);
+                        return;
+                    }
+                }
+            }
+
+            /* Use present for back -> front blits. The idea behind this is
+             * that present is potentially faster than a blit, in particular
+             * when FBO blits aren't available. Some ddraw applications like
+             * Half-Life and Prince of Persia 3D use Blt() from the backbuffer
+             * to the frontbuffer instead of doing a Flip(). D3D8 and D3D9
+             * applications can't blit directly to the frontbuffer. */
+            if (dst_swapchain && dst_swapchain->back_buffers
+                    && dst_surface == dst_swapchain->front_buffer
+                    && src_surface == dst_swapchain->back_buffers[0])
+            {
+                enum wined3d_swap_effect swap_effect = dst_swapchain->desc.swap_effect;
+
+                TRACE("Using present for backbuffer -> frontbuffer blit.\n");
+
+                /* Set the swap effect to COPY, we don't want the backbuffer
+                 * to become undefined. */
+                dst_swapchain->desc.swap_effect = WINED3D_SWAP_EFFECT_COPY;
+                wined3d_swapchain_present(dst_swapchain, NULL, NULL, dst_swapchain->win_handle, NULL, 0);
+                dst_swapchain->desc.swap_effect = swap_effect;
+
+                return;
+            }
+
+            if (fbo_blit_supported(&device->adapter->gl_info, WINED3D_BLIT_OP_COLOR_BLIT,
+                    src_rect, src_surface->resource.usage, src_surface->resource.pool, src_surface->resource.format,
+                    dst_rect, dst_surface->resource.usage, dst_surface->resource.pool, dst_surface->resource.format))
+            {
+                TRACE("Using FBO blit.\n");
+
+                surface_blt_fbo(device, filter,
+                        src_surface, src_surface->draw_binding, src_rect,
+                        dst_surface, dst_surface->draw_binding, dst_rect);
+                surface_modify_location(dst_surface, dst_surface->draw_binding, TRUE);
+                return;
+            }
+
+            if (arbfp_blit.blit_supported(&device->adapter->gl_info, WINED3D_BLIT_OP_COLOR_BLIT,
+                    src_rect, src_surface->resource.usage, src_surface->resource.pool, src_surface->resource.format,
+                    dst_rect, dst_surface->resource.usage, dst_surface->resource.pool, dst_surface->resource.format))
+            {
+                TRACE("Using arbfp blit.\n");
+
+                if (SUCCEEDED(arbfp_blit_surface(device, filter, src_surface, src_rect, dst_surface, dst_rect)))
+                    return;
+            }
+        }
+    }
+
+fallback:
+
+    /* Special cases for render targets. */
+    if ((dst_surface->resource.usage & WINED3DUSAGE_RENDERTARGET)
+            || (src_surface && (src_surface->resource.usage & WINED3DUSAGE_RENDERTARGET)))
+    {
+        if (SUCCEEDED(IWineD3DSurfaceImpl_BltOverride(dst_surface, dst_rect,
+                src_surface, src_rect, flags, fx, filter)))
+            return;
+    }
+
+cpu:
+
+    /* For the rest call the X11 surface implementation. For render targets
+     * this should be implemented OpenGL accelerated in BltOverride, other
+     * blits are rather rare. */
+    surface_cpu_blt(dst_surface, dst_rect, src_surface, src_rect, flags, fx, filter);
+    return;
+}
+
+/* Do not call while under the GL lock. */
+HRESULT CDECL wined3d_surface_blt(struct wined3d_surface *dst_surface, const RECT *dst_rect_in,
+        struct wined3d_surface *src_surface, const RECT *src_rect_in, DWORD flags,
+        const WINEDDBLTFX *fx, enum wined3d_texture_filter_type filter)
+{
+    struct wined3d_device *device = dst_surface->resource.device;
+    RECT src_rect, dst_rect;
 
     TRACE("dst_surface %p, dst_rect %s, src_surface %p, src_rect %s, flags %#x, fx %p, filter %s.\n",
             dst_surface, wine_dbgstr_rect(dst_rect_in), src_surface, wine_dbgstr_rect(src_rect_in),
@@ -1500,8 +1700,21 @@ HRESULT CDECL wined3d_surface_blt(struct wined3d_surface *dst_surface, const REC
 
     if (dst_surface->resource.map_count || (src_surface && src_surface->resource.map_count))
     {
-        WARN("Surface is busy, returning WINEDDERR_SURFACEBUSY.\n");
-        return WINEDDERR_SURFACEBUSY;
+        /* TODO: Separate application maps from internal maps */
+        if (!wined3d_settings.cs_multithreaded)
+        {
+            WARN("Surface is busy, returning WINEDDERR_SURFACEBUSY.\n");
+            return WINEDDERR_SURFACEBUSY;
+        }
+
+        wined3d_cs_emit_glfinish(dst_surface->resource.device->cs);
+        dst_surface->resource.device->cs->ops->finish(dst_surface->resource.device->cs);
+
+        if (dst_surface->resource.map_count || (src_surface && src_surface->resource.map_count))
+        {
+            WARN("Surface is busy, returning WINEDDERR_SURFACEBUSY.\n");
+            return WINEDDERR_SURFACEBUSY;
+        }
     }
 
     surface_get_rect(dst_surface, dst_rect_in, &dst_rect);
@@ -1518,6 +1731,8 @@ HRESULT CDECL wined3d_surface_blt(struct wined3d_surface *dst_surface, const REC
 
     if (src_surface)
     {
+        DWORD src_ds_flags, dst_ds_flags;
+
         surface_get_rect(src_surface, src_rect_in, &src_rect);
 
         if (src_rect.left >= src_rect.right || src_rect.top >= src_rect.bottom
@@ -1529,6 +1744,15 @@ HRESULT CDECL wined3d_surface_blt(struct wined3d_surface *dst_surface, const REC
             WARN("Application gave us bad source rectangle for Blt.\n");
             return WINEDDERR_INVALIDRECT;
         }
+
+        dst_ds_flags = dst_surface->resource.format->flags & (WINED3DFMT_FLAG_DEPTH | WINED3DFMT_FLAG_STENCIL);
+        src_ds_flags = src_surface->resource.format->flags & (WINED3DFMT_FLAG_DEPTH | WINED3DFMT_FLAG_STENCIL);
+        if (src_ds_flags != dst_ds_flags)
+        {
+            WARN("Rejecting depth / stencil blit between incompatible formats.\n");
+            return WINED3DERR_INVALIDCALL;
+        }
+
     }
     else
     {
@@ -1560,206 +1784,11 @@ HRESULT CDECL wined3d_surface_blt(struct wined3d_surface *dst_surface, const REC
         flags &= ~WINEDDBLT_DONOTWAIT;
     }
 
-    if (wined3d_settings.cs_multithreaded)
-    {
-        FIXME("Waiting for cs.\n");
-        wined3d_cs_emit_glfinish(device->cs);
-        device->cs->ops->finish(device->cs);
-    }
+    TRACE("Emitting blit %p <== %p\n", dst_surface, src_surface);
+    wined3d_cs_emit_blt(device->cs, dst_surface, &dst_rect, src_surface, &src_rect,
+            flags, fx, filter);
 
-    if (!device->d3d_initialized)
-    {
-        WARN("D3D not initialized, using fallback.\n");
-        goto cpu;
-    }
-
-    /* We want to avoid invalidating the sysmem location for converted
-     * surfaces, since otherwise we'd have to convert the data back when
-     * locking them. */
-    if (dst_surface->flags & SFLAG_CONVERTED)
-    {
-        WARN_(d3d_perf)("Converted surface, using CPU blit.\n");
-        return surface_cpu_blt(dst_surface, &dst_rect, src_surface, &src_rect, flags, fx, filter);
-    }
-
-    if (flags & ~simple_blit)
-    {
-        WARN_(d3d_perf)("Using fallback for complex blit (%#x).\n", flags);
-        goto fallback;
-    }
-
-    if (src_surface)
-        src_swapchain = src_surface->swapchain;
-    else
-        src_swapchain = NULL;
-
-    dst_swapchain = dst_surface->swapchain;
-
-    /* This isn't strictly needed. FBO blits for example could deal with
-     * cross-swapchain blits by first downloading the source to a texture
-     * before switching to the destination context. We just have this here to
-     * not have to deal with the issue, since cross-swapchain blits should be
-     * rare. */
-    if (src_swapchain && dst_swapchain && src_swapchain != dst_swapchain)
-    {
-        FIXME("Using fallback for cross-swapchain blit.\n");
-        goto fallback;
-    }
-
-    scale = src_surface
-            && (src_rect.right - src_rect.left != dst_rect.right - dst_rect.left
-            || src_rect.bottom - src_rect.top != dst_rect.bottom - dst_rect.top);
-    convert = src_surface && src_surface->resource.format->id != dst_surface->resource.format->id;
-
-    dst_ds_flags = dst_surface->resource.format->flags & (WINED3DFMT_FLAG_DEPTH | WINED3DFMT_FLAG_STENCIL);
-    if (src_surface)
-        src_ds_flags = src_surface->resource.format->flags & (WINED3DFMT_FLAG_DEPTH | WINED3DFMT_FLAG_STENCIL);
-    else
-        src_ds_flags = 0;
-
-    if (src_ds_flags || dst_ds_flags)
-    {
-        if (flags & WINEDDBLT_DEPTHFILL)
-        {
-            float depth;
-
-            TRACE("Depth fill.\n");
-
-            if (!surface_convert_depth_to_float(dst_surface, fx->u5.dwFillDepth, &depth))
-                return WINED3DERR_INVALIDCALL;
-
-            if (SUCCEEDED(wined3d_surface_depth_fill(dst_surface, &dst_rect, depth)))
-                return WINED3D_OK;
-        }
-        else
-        {
-            if (src_ds_flags != dst_ds_flags)
-            {
-                WARN("Rejecting depth / stencil blit between incompatible formats.\n");
-                return WINED3DERR_INVALIDCALL;
-            }
-
-            if (SUCCEEDED(wined3d_surface_depth_blt(src_surface, src_surface->draw_binding, &src_rect,
-                    dst_surface, dst_surface->draw_binding, &dst_rect)))
-                return WINED3D_OK;
-        }
-    }
-    else
-    {
-        /* In principle this would apply to depth blits as well, but we don't
-         * implement those in the CPU blitter at the moment. */
-        if ((dst_surface->flags & SFLAG_INSYSMEM)
-                && (!src_surface || (src_surface->flags & SFLAG_INSYSMEM)))
-        {
-            if (scale)
-                TRACE("Not doing sysmem blit because of scaling.\n");
-            else if (convert)
-                TRACE("Not doing sysmem blit because of format conversion.\n");
-            else
-                return surface_cpu_blt(dst_surface, &dst_rect, src_surface, &src_rect, flags, fx, filter);
-        }
-
-        if (flags & WINEDDBLT_COLORFILL)
-        {
-            struct wined3d_color color;
-
-            TRACE("Color fill.\n");
-
-            if (!surface_convert_color_to_float(dst_surface, fx->u5.dwFillColor, &color))
-                goto fallback;
-
-            if (SUCCEEDED(surface_color_fill(dst_surface, &dst_rect, &color)))
-                return WINED3D_OK;
-        }
-        else
-        {
-            TRACE("Color blit.\n");
-
-            /* Upload */
-            if ((src_surface->flags & SFLAG_INSYSMEM) && !(dst_surface->flags & SFLAG_INSYSMEM))
-            {
-                if (scale)
-                    TRACE("Not doing upload because of scaling.\n");
-                else if (convert)
-                    TRACE("Not doing upload because of format conversion.\n");
-                else
-                {
-                    POINT dst_point = {dst_rect.left, dst_rect.top};
-
-                    if (SUCCEEDED(surface_upload_from_surface(dst_surface, &dst_point, src_surface, &src_rect)))
-                    {
-                        if (!surface_is_offscreen(dst_surface))
-                            surface_load_location(dst_surface, dst_surface->draw_binding, NULL);
-                        return WINED3D_OK;
-                    }
-                }
-            }
-
-            /* Use present for back -> front blits. The idea behind this is
-             * that present is potentially faster than a blit, in particular
-             * when FBO blits aren't available. Some ddraw applications like
-             * Half-Life and Prince of Persia 3D use Blt() from the backbuffer
-             * to the frontbuffer instead of doing a Flip(). D3D8 and D3D9
-             * applications can't blit directly to the frontbuffer. */
-            if (dst_swapchain && dst_swapchain->back_buffers
-                    && dst_surface == dst_swapchain->front_buffer
-                    && src_surface == dst_swapchain->back_buffers[0])
-            {
-                enum wined3d_swap_effect swap_effect = dst_swapchain->desc.swap_effect;
-
-                TRACE("Using present for backbuffer -> frontbuffer blit.\n");
-
-                /* Set the swap effect to COPY, we don't want the backbuffer
-                 * to become undefined. */
-                dst_swapchain->desc.swap_effect = WINED3D_SWAP_EFFECT_COPY;
-                wined3d_swapchain_present(dst_swapchain, NULL, NULL, dst_swapchain->win_handle, NULL, 0);
-                dst_swapchain->desc.swap_effect = swap_effect;
-
-                return WINED3D_OK;
-            }
-
-            if (fbo_blit_supported(&device->adapter->gl_info, WINED3D_BLIT_OP_COLOR_BLIT,
-                    &src_rect, src_surface->resource.usage, src_surface->resource.pool, src_surface->resource.format,
-                    &dst_rect, dst_surface->resource.usage, dst_surface->resource.pool, dst_surface->resource.format))
-            {
-                TRACE("Using FBO blit.\n");
-
-                surface_blt_fbo(device, filter,
-                        src_surface, src_surface->draw_binding, &src_rect,
-                        dst_surface, dst_surface->draw_binding, &dst_rect);
-                surface_modify_location(dst_surface, dst_surface->draw_binding, TRUE);
-                return WINED3D_OK;
-            }
-
-            if (arbfp_blit.blit_supported(&device->adapter->gl_info, WINED3D_BLIT_OP_COLOR_BLIT,
-                    &src_rect, src_surface->resource.usage, src_surface->resource.pool, src_surface->resource.format,
-                    &dst_rect, dst_surface->resource.usage, dst_surface->resource.pool, dst_surface->resource.format))
-            {
-                TRACE("Using arbfp blit.\n");
-
-                if (SUCCEEDED(arbfp_blit_surface(device, filter, src_surface, &src_rect, dst_surface, &dst_rect)))
-                    return WINED3D_OK;
-            }
-        }
-    }
-
-fallback:
-
-    /* Special cases for render targets. */
-    if ((dst_surface->resource.usage & WINED3DUSAGE_RENDERTARGET)
-            || (src_surface && (src_surface->resource.usage & WINED3DUSAGE_RENDERTARGET)))
-    {
-        if (SUCCEEDED(IWineD3DSurfaceImpl_BltOverride(dst_surface, &dst_rect,
-                src_surface, &src_rect, flags, fx, filter)))
-            return WINED3D_OK;
-    }
-
-cpu:
-
-    /* For the rest call the X11 surface implementation. For render targets
-     * this should be implemented OpenGL accelerated in BltOverride, other
-     * blits are rather rare. */
-    return surface_cpu_blt(dst_surface, &dst_rect, src_surface, &src_rect, flags, fx, filter);
+    return WINED3D_OK;
 }
 
 HRESULT CDECL wined3d_surface_get_render_target_data(struct wined3d_surface *surface,
@@ -3144,6 +3173,11 @@ HRESULT CDECL wined3d_surface_set_color_key(struct wined3d_surface *surface,
         return WINED3DERR_INVALIDCALL;
     }
 
+    if (wined3d_settings.cs_multithreaded)
+    {
+        surface->resource.device->cs->ops->finish(surface->resource.device->cs);
+    }
+
     /* Dirtify the surface, but only if a key was changed. */
     if (color_key)
     {
@@ -3849,6 +3883,13 @@ HRESULT CDECL wined3d_surface_map(struct wined3d_surface *surface,
 
     TRACE("surface %p, map_desc %p, rect %s, flags %#x.\n",
             surface, map_desc, wine_dbgstr_rect(rect), flags);
+
+    if (wined3d_settings.cs_multithreaded)
+    {
+        wined3d_cs_emit_glfinish(surface->resource.device->cs);
+        surface->resource.device->cs->ops->finish(surface->resource.device->cs);
+    }
+
 
     if (surface->resource.map_count)
     {

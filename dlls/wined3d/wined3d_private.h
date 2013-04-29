@@ -2300,6 +2300,9 @@ void surface_translate_drawable_coords(const struct wined3d_surface *surface, HW
 void surface_update_draw_binding(struct wined3d_surface *surface) DECLSPEC_HIDDEN;
 HRESULT surface_upload_from_surface(struct wined3d_surface *dst_surface, const POINT *dst_point,
         struct wined3d_surface *src_surface, const RECT *src_rect) DECLSPEC_HIDDEN;
+void surface_blt_ugly(struct wined3d_surface *dst_surface, const RECT *dst_rect_in,
+        struct wined3d_surface *src_surface, const RECT *src_rect_in, DWORD flags,
+        const WINEDDBLTFX *fx, enum wined3d_texture_filter_type filter) DECLSPEC_HIDDEN;
 
 void get_drawable_size_swapchain(const struct wined3d_context *context, UINT *width, UINT *height) DECLSPEC_HIDDEN;
 void get_drawable_size_backbuffer(const struct wined3d_context *context, UINT *width, UINT *height) DECLSPEC_HIDDEN;
@@ -2500,6 +2503,7 @@ struct wined3d_cs
 {
     const struct wined3d_cs_ops *ops;
     HANDLE thread;
+    DWORD thread_id;
     DWORD tls_idx;
     struct wined3d_cs_list free_list;
     struct wined3d_cs_list exec_list;
@@ -2573,6 +2577,10 @@ void wined3d_cs_emit_set_stream_output(struct wined3d_cs *cs, UINT idx,
         struct wined3d_buffer *buffer, UINT offset) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_set_light(struct wined3d_cs *cs, const struct wined3d_light_info *light) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_set_light_enable(struct wined3d_cs *cs, UINT idx, BOOL enable) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_blt(struct wined3d_cs *cs, struct wined3d_surface *dst_surface,
+        const RECT *dst_rect, struct wined3d_surface *src_surface,
+        const RECT *src_rect, DWORD flags, const WINEDDBLTFX *fx,
+        enum wined3d_texture_filter_type filter) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d
