@@ -1137,10 +1137,6 @@ void CDECL wined3d_buffer_unmap(struct wined3d_buffer *buffer)
         buffer->resource.allocatedMemory = NULL;
         buffer_clear_dirty_areas(buffer);
     }
-    else if (buffer->flags & WINED3D_BUFFER_HASDESC)
-    {
-        wined3d_buffer_preload(buffer);
-    }
 }
 
 static const struct wined3d_resource_ops buffer_resource_ops =
