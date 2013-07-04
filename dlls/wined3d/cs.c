@@ -66,6 +66,8 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_LIGHT_ENABLE,
     WINED3D_CS_OP_BLT,
     WINED3D_CS_OP_COLOR_FILL,
+    WINED3D_CS_OP_SURFACE_MAP,
+    WINED3D_CS_OP_SURFACE_UNMAP,
     WINED3D_CS_OP_STOP,
 };
 
@@ -322,6 +324,21 @@ struct wined3d_cs_color_fill
     struct wined3d_surface *surface;
     RECT rect;
     struct wined3d_color color;
+};
+
+struct wined3d_cs_surface_map
+{
+    enum wined3d_cs_op opcode;
+    struct wined3d_surface *surface;
+    RECT rect;
+    DWORD flags;
+    BOOL has_rect;
+};
+
+struct wined3d_cs_surface_unmap
+{
+    enum wined3d_cs_op opcode;
+    struct wined3d_surface *surface;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -1740,6 +1757,65 @@ void wined3d_cs_emit_color_fill(struct wined3d_cs *cs, struct wined3d_surface *s
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_surface_map(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_surface_map *op = data;
+    struct wined3d_surface *surface = op->surface;
+    const RECT *r = op->has_rect ? &op->rect : NULL;
+
+    surface->surface_ops->surface_map(surface, r, op->flags);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_surface_map(struct wined3d_cs *cs, struct wined3d_surface *surface,
+        const RECT *rect, DWORD flags)
+{
+    struct wined3d_cs_surface_map *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SURFACE_MAP;
+    op->surface = surface;
+    if (rect)
+    {
+        op->rect = *rect;
+        op->has_rect = TRUE;
+    }
+    else
+    {
+        op->has_rect = FALSE;
+    }
+    op->flags = flags;
+
+    cs->ops->finish(cs);
+
+    if (flags & (WINED3D_MAP_NOOVERWRITE | WINED3D_MAP_DISCARD))
+    {
+        FIXME("Dynamic surface map is inefficient\n");
+    }
+}
+
+static UINT wined3d_cs_exec_surface_unmap(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_surface_unmap *op = data;
+    struct wined3d_surface *surface = op->surface;
+
+    surface->surface_ops->surface_unmap(surface);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_surface_unmap(struct wined3d_cs *cs, struct wined3d_surface *surface)
+{
+    struct wined3d_cs_surface_unmap *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SURFACE_UNMAP;
+    op->surface = surface;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -1785,6 +1861,8 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_LIGHT_ENABLE       */ wined3d_cs_exec_set_light_enable,
     /* WINED3D_CS_OP_BLT                    */ wined3d_cs_exec_blt,
     /* WINED3D_CS_OP_COLOR_FILL             */ wined3d_cs_exec_color_fill,
+    /* WINED3D_CS_OP_SURFACE_MAP            */ wined3d_cs_exec_surface_map,
+    /* WINED3D_CS_OP_SURFACE_UNMAP          */ wined3d_cs_exec_surface_unmap,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)

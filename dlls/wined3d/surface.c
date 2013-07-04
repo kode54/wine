@@ -892,13 +892,6 @@ static void surface_map(struct wined3d_surface *surface, const RECT *rect, DWORD
     TRACE("surface %p, rect %s, flags %#x.\n",
             surface, wine_dbgstr_rect(rect), flags);
 
-    if (wined3d_settings.cs_multithreaded)
-    {
-        FIXME("Waiting for cs.\n");
-        wined3d_cs_emit_glfinish(device->cs);
-        device->cs->ops->finish(device->cs);
-    }
-
     if (flags & WINED3D_MAP_DISCARD)
     {
         TRACE("WINED3D_MAP_DISCARD flag passed, marking SYSMEM as up to date.\n");
@@ -3864,6 +3857,7 @@ struct wined3d_surface * CDECL wined3d_surface_from_resource(struct wined3d_reso
 
 HRESULT CDECL wined3d_surface_unmap(struct wined3d_surface *surface)
 {
+    const struct wined3d_device *device = surface->resource.device;
     TRACE("surface %p.\n", surface);
 
     if (!surface->resource.map_count)
@@ -3873,7 +3867,7 @@ HRESULT CDECL wined3d_surface_unmap(struct wined3d_surface *surface)
     }
     --surface->resource.map_count;
 
-    surface->surface_ops->surface_unmap(surface);
+    wined3d_cs_emit_surface_unmap(device->cs, surface);
 
     return WINED3D_OK;
 }
@@ -3882,17 +3876,10 @@ HRESULT CDECL wined3d_surface_map(struct wined3d_surface *surface,
         struct wined3d_map_desc *map_desc, const RECT *rect, DWORD flags)
 {
     const struct wined3d_format *format = surface->resource.format;
+    const struct wined3d_device *device = surface->resource.device;
 
     TRACE("surface %p, map_desc %p, rect %s, flags %#x.\n",
             surface, map_desc, wine_dbgstr_rect(rect), flags);
-
-    if (wined3d_settings.cs_multithreaded)
-    {
-        FIXME("waiting for cs\n");
-        wined3d_cs_emit_glfinish(surface->resource.device->cs);
-        surface->resource.device->cs->ops->finish(surface->resource.device->cs);
-    }
-
 
     if (surface->resource.map_count)
     {
@@ -3928,7 +3915,7 @@ HRESULT CDECL wined3d_surface_map(struct wined3d_surface *surface,
         }
     }
 
-    surface->surface_ops->surface_map(surface, rect, flags);
+    wined3d_cs_emit_surface_map(device->cs, surface, rect, flags);
 
     if (format->flags & WINED3DFMT_FLAG_BROKEN_PITCH)
         map_desc->row_pitch = surface->resource.width * format->byte_count;
