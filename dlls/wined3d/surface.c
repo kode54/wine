@@ -1707,6 +1707,7 @@ HRESULT CDECL wined3d_surface_blt(struct wined3d_surface *dst_surface, const REC
             return WINEDDERR_SURFACEBUSY;
         }
 
+        FIXME("waiting for cs\n");
         wined3d_cs_emit_glfinish(dst_surface->resource.device->cs);
         dst_surface->resource.device->cs->ops->finish(dst_surface->resource.device->cs);
 
@@ -3175,6 +3176,7 @@ HRESULT CDECL wined3d_surface_set_color_key(struct wined3d_surface *surface,
 
     if (wined3d_settings.cs_multithreaded)
     {
+        FIXME("waiting for cs\n");
         surface->resource.device->cs->ops->finish(surface->resource.device->cs);
     }
 
@@ -3886,6 +3888,7 @@ HRESULT CDECL wined3d_surface_map(struct wined3d_surface *surface,
 
     if (wined3d_settings.cs_multithreaded)
     {
+        FIXME("waiting for cs\n");
         wined3d_cs_emit_glfinish(surface->resource.device->cs);
         surface->resource.device->cs->ops->finish(surface->resource.device->cs);
     }
