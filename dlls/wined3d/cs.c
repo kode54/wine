@@ -2049,6 +2049,7 @@ static void wined3d_cs_mt_finish(struct wined3d_cs *cs)
 {
     BOOL fence;
 
+    FIXME("finish called\n");
     if (cs->thread_id == GetCurrentThreadId())
     {
         static BOOL once;
