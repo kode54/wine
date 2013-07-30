@@ -789,7 +789,7 @@ typedef enum _SYSTEM_INFORMATION_CLASS {
     Unknown57,
     Unknown58,
     Unknown59,
-    Unknown60,
+    SystemNumaAvailableMemory = 60,
     Unknown61,
     Unknown62,
     Unknown63,
