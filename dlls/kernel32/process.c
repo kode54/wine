@@ -3849,9 +3849,28 @@ HRESULT WINAPI RegisterApplicationRecoveryCallback(APPLICATION_RECOVERY_CALLBACK
  */
 BOOL WINAPI GetNumaHighestNodeNumber(PULONG highestnode)
 {
-    FIXME("(%p): stub\n", highestnode);
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
-    return FALSE;
+    ULONG NtHighestNode, ReturnLength;
+    NTSTATUS status;
+    
+    TRACE("(%p)\n", highestnode);
+    
+    status = NtQuerySystemInformation(SystemNumaGroupAffinity,
+                                      &NtHighestNode, sizeof(NtHighestNode),
+                                      &ReturnLength);
+    
+    if (status != STATUS_SUCCESS)
+    {
+        SetLastError(RtlNtStatusToDosError(status));
+        return FALSE;
+    }
+    else if (ReturnLength < sizeof(NtHighestNode))
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    
+    *highestnode = NtHighestNode;
+    return TRUE;
 }
 
 /**********************************************************************
