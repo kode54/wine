@@ -3874,13 +3874,49 @@ BOOL WINAPI GetNumaHighestNodeNumber(PULONG highestnode)
 }
 
 /**********************************************************************
+ *           GetNumaNodeProcessorMaskEx     (KERNEL32.@)
+ */
+BOOL WINAPI GetNumaNodeProcessorMaskEx(USHORT node, PGROUP_AFFINITY affinity)
+{
+    TRACE("(%d %p)\n", node, affinity);
+    UCHAR Buffer[0x108];
+    NTSTATUS Status;
+    ULONG ReturnLength;
+    
+    Status = NtQuerySystemInformation(SystemNumaGroupAffinity, &Buffer, sizeof(Buffer), &ReturnLength);
+    
+    if (Status != STATUS_SUCCESS)
+    {
+        SetLastError(RtlNtStatusToDosError(Status));
+        return FALSE;
+    }
+    else if (node > *(ULONG*)&Buffer)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    
+    memcpy(affinity, &Buffer[8 + node * sizeof(GROUP_AFFINITY)], sizeof(GROUP_AFFINITY));
+    
+    return TRUE;
+}
+
+/**********************************************************************
  *           GetNumaNodeProcessorMask     (KERNEL32.@)
  */
 BOOL WINAPI GetNumaNodeProcessorMask(UCHAR node, PULONGLONG mask)
 {
-    FIXME("(%c %p): stub\n", node, mask);
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
-    return FALSE;
+    TRACE("(%c %p)\n", node, mask);
+    GROUP_AFFINITY Affinity;
+    ULONG ProcessorNumber;
+    if (!GetNumaNodeProcessorMaskEx(node, &Affinity))
+        return FALSE;
+    RtlGetCurrentProcessorNumberEx(&ProcessorNumber);
+    if (ProcessorNumber != Affinity.Group)
+        *mask = 0;
+    else
+        *mask = Affinity.Mask;
+    return TRUE;
 }
 
 /**********************************************************************

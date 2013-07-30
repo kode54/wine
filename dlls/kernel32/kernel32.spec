@@ -581,6 +581,7 @@
 @ stdcall GetNumaAvailableMemoryNode(long ptr)
 @ stdcall GetNumaHighestNodeNumber(ptr)
 @ stdcall GetNumaNodeProcessorMask(long ptr)
+@ stdcall GetNumaNodeProcessorMaskEx(long ptr)
 # @ stub GetNumaProcessorMap
 # @ stub GetNumaProcessorNode
 @ stdcall GetNumberFormatA(long long str ptr ptr long)
