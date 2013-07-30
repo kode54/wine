@@ -1828,9 +1828,7 @@ static UINT wined3d_cs_exec_swap_mem(struct wined3d_cs *cs, const void *data)
     const struct wined3d_cs_swap_mem *op = data;
     struct wined3d_buffer *buffer = op->buffer;
 
-    wined3d_resource_free_sysmem(buffer->resource.heap_memory);
-    buffer->resource.allocatedMemory = op->mem;
-    buffer->resource.heap_memory = op->mem;
+    buffer_swap_mem(buffer, op->mem);
 
     if (!buffer->buffer_object && buffer->resource.bind_count)
     {
