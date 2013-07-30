@@ -74,6 +74,26 @@ PEB * WINAPI RtlGetCurrentPeb(void)
 }
 
 /***********************************************************************
+ *  RtlGetCurrentProcessorNumber  [NTDLL.@]
+ *
+ */
+ULONG WINAPI RtlGetCurrentProcessorNumber(void)
+{
+    FIXME("stub\n");
+    return 0;
+}
+
+/***********************************************************************
+ *  RtlGetCurrentProcessorNumberEx  [NTDLL.@]
+ *
+ */
+void WINAPI RtlGetCurrentProcessorNumberEx(PULONG processor_number)
+{
+    FIXME("(%p) stub\n", processor_number);
+    *processor_number = 0;
+}
+
+/***********************************************************************
  *           __wine_make_process_system   (NTDLL.@)
  *
  * Mark the current process as a system process.
