@@ -2034,6 +2034,30 @@ NTSTATUS WINAPI NtQuerySystemInformation(
             RtlFreeHeap(GetProcessHeap(), 0, buf);
         }
         break;
+    case SystemNumaGroupAffinity:
+        {
+            /* This needs testing on systems with more than one physical
+             * processor, but a single processor system will always return
+             * zero, from what I've tested. */
+            len = 4;
+            if ( Length >= len)
+            {
+                ULONG HighestNode = 0;
+                memcpy( SystemInformation, &HighestNode, len);
+                
+                if ( Length >= len + 4 + sizeof(GROUP_AFFINITY))
+                {
+                    GROUP_AFFINITY Affinity;
+                    Affinity.Mask = (1 << NtCurrentTeb()->Peb->NumberOfProcessors) - 1;
+                    Affinity.Group = 0;
+                    memset( ((UCHAR*)SystemInformation) + 4, 0, 4);
+                    memcpy( ((UCHAR*)SystemInformation) + 8, &Affinity, sizeof(Affinity));
+                    len += 4 + sizeof(Affinity);
+                }
+            }
+            else ret = STATUS_INFO_LENGTH_MISMATCH;
+        }
+        break;
     default:
 	FIXME("(0x%08x,%p,0x%08x,%p) stub\n",
 	      SystemInformationClass,SystemInformation,Length,ResultLength);

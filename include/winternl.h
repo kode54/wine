@@ -784,7 +784,7 @@ typedef enum _SYSTEM_INFORMATION_CLASS {
     SystemAddVerifier = 52,
     SystemSessionProcessesInformation	= 53,
     Unknown54,
-    Unknown55,
+    SystemNumaGroupAffinity = 55,
     Unknown56,
     Unknown57,
     Unknown58,
