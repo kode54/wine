@@ -480,10 +480,9 @@ DWORD CDECL wined3d_texture_get_priority(const struct wined3d_texture *texture)
 /* Do not call while under the GL lock. */
 void CDECL wined3d_texture_preload(struct wined3d_texture *texture)
 {
-    struct wined3d_context *context;
-    context = context_acquire(texture->resource.device, NULL);
-    texture->texture_ops->texture_preload(texture, context, SRGB_ANY);
-    context_release(context);
+    const struct wined3d_device *device = texture->resource.device;
+
+    wined3d_cs_emit_texture_preload(device->cs, texture);
 }
 
 void * CDECL wined3d_texture_get_parent(const struct wined3d_texture *texture)
