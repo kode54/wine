@@ -3054,18 +3054,16 @@ DWORD CDECL wined3d_surface_get_priority(const struct wined3d_surface *surface)
 
 void CDECL wined3d_surface_preload(struct wined3d_surface *surface)
 {
-    struct wined3d_context *context;
+    const struct wined3d_device *device = surface->resource.device;
     TRACE("surface %p.\n", surface);
 
-    if (!surface->resource.device->d3d_initialized)
+    if (!device->d3d_initialized)
     {
         ERR("D3D not initialized.\n");
         return;
     }
 
-    context = context_acquire(surface->resource.device, NULL);
-    surface_internal_preload(surface, context, SRGB_ANY);
-    context_release(context);
+    wined3d_cs_emit_surface_preload(device->cs, surface);
 }
 
 void * CDECL wined3d_surface_get_parent(const struct wined3d_surface *surface)
