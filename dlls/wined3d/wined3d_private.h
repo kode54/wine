@@ -2315,7 +2315,7 @@ void get_drawable_size_fbo(const struct wined3d_context *context, UINT *width, U
 
 void draw_textured_quad(const struct wined3d_surface *src_surface, struct wined3d_context *context,
         const RECT *src_rect, const RECT *dst_rect, enum wined3d_texture_filter_type filter) DECLSPEC_HIDDEN;
-void flip_surface(struct wined3d_surface *front, struct wined3d_surface *back) DECLSPEC_HIDDEN;
+void surface_flip(struct wined3d_surface *front, struct wined3d_surface *back) DECLSPEC_HIDDEN;
 
 /* Surface flags: */
 #define SFLAG_CONVERTED         0x00000001 /* Converted for color keying or palettized. */
@@ -2613,6 +2613,8 @@ void wined3d_cs_emit_surface_preload(struct wined3d_cs *cs, struct wined3d_surfa
 void wined3d_cs_emit_update_texture(struct wined3d_cs *cs, struct wined3d_texture *src,
         struct wined3d_texture *dst) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_evict_resource(struct wined3d_cs *cs, struct wined3d_resource *resource) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_surface_flip(struct wined3d_cs *cs, struct wined3d_surface *surface,
+        struct wined3d_surface *override) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d

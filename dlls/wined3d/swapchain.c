@@ -604,7 +604,7 @@ static void swapchain_gl_present(struct wined3d_swapchain *swapchain, const RECT
         if (front->resource.size == back_buffer->resource.size)
         {
             DWORD fbflags;
-            flip_surface(front, back_buffer);
+            surface_flip(front, back_buffer);
 
             /* Tell the front buffer surface that is has been modified. However,
              * the other locations were preserved during that, so keep the flags.

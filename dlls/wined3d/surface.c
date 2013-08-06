@@ -4081,6 +4081,8 @@ HRESULT CDECL wined3d_surface_releasedc(struct wined3d_surface *surface, HDC dc)
 
 HRESULT CDECL wined3d_surface_flip(struct wined3d_surface *surface, struct wined3d_surface *override, DWORD flags)
 {
+    struct wined3d_device *device = surface->resource.device;
+
     TRACE("surface %p, override %p, flags %#x.\n", surface, override, flags);
 
     if (flags)
@@ -4105,15 +4107,7 @@ HRESULT CDECL wined3d_surface_flip(struct wined3d_surface *surface, struct wined
         return WINEDDERR_NOTFLIPPABLE;
     }
 
-    if (wined3d_settings.cs_multithreaded)
-    {
-        struct wined3d_device *device = surface->resource.device;
-        FIXME("Waiting for cs.\n");
-        wined3d_cs_emit_glfinish(device->cs);
-        device->cs->ops->finish(device->cs);
-    }
-
-    flip_surface(surface, override);
+    wined3d_cs_emit_surface_flip(device->cs, surface, override);
 
     /* Update overlays if they're visible. */
     if ((surface->resource.usage & WINED3DUSAGE_OVERLAY) && surface->overlay_dest)
@@ -4719,7 +4713,7 @@ static HRESULT d3dfmt_convert_surface(const BYTE *src, BYTE *dst, UINT pitch, UI
     return WINED3D_OK;
 }
 
-void flip_surface(struct wined3d_surface *front, struct wined3d_surface *back)
+void surface_flip(struct wined3d_surface *front, struct wined3d_surface *back)
 {
     /* Flip the surface contents */
     /* Flip the DC */
