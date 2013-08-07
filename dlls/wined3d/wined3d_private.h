@@ -1139,6 +1139,11 @@ struct wined3d_context
     struct wined3d_event_query *buffer_queries[MAX_ATTRIBS];
     unsigned int num_buffer_queries;
 
+    /* Information extracted from the draw state */
+    DWORD                     tex_unit_map[MAX_COMBINED_SAMPLERS];
+    DWORD                     rev_tex_unit_map[MAX_COMBINED_SAMPLERS];
+    BYTE                      fixed_function_usage_map;      /* MAX_TEXTURES, 8 */
+
     /* Extension emulation */
     GLint                   gl_fog_source;
     GLfloat                 fog_coord_value;
@@ -1888,8 +1893,6 @@ struct wined3d_device
     WORD softwareVertexProcessing : 1;  /* process vertex shaders using software or hardware */
     WORD filter_messages : 1;
 
-    BYTE fixed_function_usage_map;      /* MAX_TEXTURES, 8 */
-
     unsigned char           surface_alignment; /* Line Alignment of surfaces                      */
 
     struct wined3d_state state;
@@ -1932,10 +1935,6 @@ struct wined3d_device
     UINT dummy_texture_3d[MAX_COMBINED_SAMPLERS];
     UINT dummy_texture_cube[MAX_COMBINED_SAMPLERS];
 
-    /* With register combiners we can skip junk texture stages */
-    DWORD                     texUnitMap[MAX_COMBINED_SAMPLERS];
-    DWORD                     rev_tex_unit_map[MAX_COMBINED_SAMPLERS];
-
     /* Context management */
     struct wined3d_context **contexts;
     UINT context_count;
@@ -1956,7 +1955,6 @@ void device_resource_add(struct wined3d_device *device, struct wined3d_resource 
 void device_resource_released(struct wined3d_device *device, struct wined3d_resource *resource) DECLSPEC_HIDDEN;
 void device_switch_onscreen_ds(struct wined3d_device *device, struct wined3d_context *context,
         struct wined3d_surface *depth_stencil) DECLSPEC_HIDDEN;
-void device_update_tex_unit_map(struct wined3d_device *device) DECLSPEC_HIDDEN;
 void device_invalidate_state(const struct wined3d_device *device, DWORD state) DECLSPEC_HIDDEN;
 
 static inline BOOL isStateDirty(const struct wined3d_context *context, DWORD state)
@@ -1966,9 +1964,9 @@ static inline BOOL isStateDirty(const struct wined3d_context *context, DWORD sta
     return context->isStateDirty[idx] & (1 << shift);
 }
 
-static inline void invalidate_active_texture(const struct wined3d_device *device, struct wined3d_context *context)
+static inline void invalidate_active_texture(struct wined3d_context *context)
 {
-    DWORD sampler = device->rev_tex_unit_map[context->active_texture];
+    DWORD sampler = context->rev_tex_unit_map[context->active_texture];
     if (sampler != WINED3D_UNMAPPED_STAGE)
         context_invalidate_state(context, STATE_SAMPLER(sampler));
 }
