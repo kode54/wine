@@ -310,14 +310,13 @@ static BOOL buffer_check_attribute(struct wined3d_buffer *This, const struct win
     return ret;
 }
 
-static BOOL buffer_find_decl(struct wined3d_buffer *This)
+static BOOL buffer_find_decl(struct wined3d_buffer *This, const struct wined3d_context *context)
 {
     struct wined3d_device *device = This->resource.device;
-    const struct wined3d_adapter *adapter = device->adapter;
-    const struct wined3d_stream_info *si = &device->stream_info;
-    const struct wined3d_state *state = &device->state;
-    BOOL support_d3dcolor = adapter->gl_info.supported[ARB_VERTEX_ARRAY_BGRA];
-    BOOL support_xyzrhw = adapter->d3d_info.xyzrhw;
+    const struct wined3d_stream_info *si = &context->stream_info;
+    const struct wined3d_state *state = &device->state; /* FIXME */
+    BOOL support_d3dcolor = context->gl_info->supported[ARB_VERTEX_ARRAY_BGRA];
+    BOOL support_xyzrhw = context->d3d_info->xyzrhw;
     UINT stride_this_run = 0;
     BOOL ret = FALSE;
 
@@ -771,7 +770,7 @@ void buffer_internal_preload(struct wined3d_buffer *buffer, struct wined3d_conte
     /* Reading the declaration makes only sense if the stateblock is finalized and the buffer bound to a stream */
     if (device->isInDraw && buffer->resource.bind_count > 0)
     {
-        decl_changed = buffer_find_decl(buffer);
+        decl_changed = buffer_find_decl(buffer, context);
         buffer->flags |= WINED3D_BUFFER_HASDESC;
     }
 

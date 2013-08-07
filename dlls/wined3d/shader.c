@@ -1813,14 +1813,14 @@ HRESULT CDECL wined3d_shader_set_local_constants_float(struct wined3d_shader *sh
     return WINED3D_OK;
 }
 
-void find_vs_compile_args(const struct wined3d_state *state,
-        const struct wined3d_shader *shader, struct vs_compile_args *args)
+void find_vs_compile_args(const struct wined3d_state *state, const struct wined3d_shader *shader,
+        WORD swizzle_map, struct vs_compile_args *args)
 {
     args->fog_src = state->render_states[WINED3D_RS_FOGTABLEMODE]
             == WINED3D_FOG_NONE ? VS_FOG_COORD : VS_FOG_Z;
     args->clip_enabled = state->render_states[WINED3D_RS_CLIPPING]
             && state->render_states[WINED3D_RS_CLIPPLANEENABLE];
-    args->swizzle_map = shader->device->stream_info.swizzle_map;
+    args->swizzle_map = swizzle_map;
 }
 
 static BOOL match_usage(BYTE usage1, BYTE usage_idx1, BYTE usage2, BYTE usage_idx2)
@@ -2021,8 +2021,8 @@ static HRESULT geometryshader_init(struct wined3d_shader *shader, struct wined3d
     return WINED3D_OK;
 }
 
-void find_ps_compile_args(const struct wined3d_state *state,
-        const struct wined3d_shader *shader, struct ps_compile_args *args)
+void find_ps_compile_args(const struct wined3d_state *state, const struct wined3d_shader *shader,
+        BOOL position_transformed, struct ps_compile_args *args)
 {
     struct wined3d_device *device = shader->device;
     const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
@@ -2154,7 +2154,7 @@ void find_ps_compile_args(const struct wined3d_state *state,
     }
     if (shader->reg_maps.shader_version.major >= 3)
     {
-        if (device->stream_info.position_transformed)
+        if (position_transformed)
             args->vp_mode = pretransformed;
         else if (use_vs(state))
             args->vp_mode = vertexshader;
@@ -2170,7 +2170,7 @@ void find_ps_compile_args(const struct wined3d_state *state,
             switch (state->render_states[WINED3D_RS_FOGTABLEMODE])
             {
                 case WINED3D_FOG_NONE:
-                    if (device->stream_info.position_transformed || use_vs(state))
+                    if (position_transformed || use_vs(state))
                     {
                         args->fog = WINED3D_FFP_PS_FOG_LINEAR;
                         break;

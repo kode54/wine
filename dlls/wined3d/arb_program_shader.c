@@ -4418,12 +4418,11 @@ static inline BOOL vs_args_equal(const struct arb_vs_compile_args *stored, const
 }
 
 static struct arb_vs_compiled_shader *find_arb_vshader(struct wined3d_shader *shader,
-        const struct arb_vs_compile_args *args,
+        const struct wined3d_context *context, const struct arb_vs_compile_args *args,
         const struct wined3d_shader_signature_element *ps_input_sig)
 {
-    struct wined3d_device *device = shader->device;
-    const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
-    DWORD use_map = device->stream_info.use_map;
+    const struct wined3d_gl_info *gl_info = context->gl_info;
+    DWORD use_map = context->stream_info.use_map;
     UINT i;
     DWORD new_size;
     struct arb_vs_compiled_shader *new_array;
@@ -4514,7 +4513,7 @@ static void find_arb_ps_compile_args(const struct wined3d_state *state,
     int i;
     WORD int_skip;
 
-    find_ps_compile_args(state, shader, &args->super);
+    find_ps_compile_args(state, shader, context->stream_info.position_transformed, &args->super);
 
     /* This forces all local boolean constants to 1 to make them stateblock independent */
     args->bools = shader->reg_maps.local_bool_consts;
@@ -4572,7 +4571,7 @@ static void find_arb_vs_compile_args(const struct wined3d_state *state,
     int i;
     WORD int_skip;
 
-    find_vs_compile_args(state, shader, &args->super);
+    find_vs_compile_args(state, shader, context->stream_info.swizzle_map, &args->super);
 
     args->clip.boolclip_compare = 0;
     if (use_ps(state))
@@ -4734,7 +4733,7 @@ static void shader_arb_select(void *shader_priv, struct wined3d_context *context
         else
             ps_input_sig = state->pixel_shader->input_signature;
 
-        compiled = find_arb_vshader(vs, &compile_args, ps_input_sig);
+        compiled = find_arb_vshader(vs, context, &compile_args, ps_input_sig);
         priv->current_vprogram_id = compiled->prgId;
         priv->compiled_vprog = compiled;
 
