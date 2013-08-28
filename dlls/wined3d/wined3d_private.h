@@ -2549,6 +2549,8 @@ void wined3d_cs_emit_set_vertex_shader(struct wined3d_cs *cs, struct wined3d_sha
 void wined3d_cs_emit_set_pixel_shader(struct wined3d_cs *cs, struct wined3d_shader *shader) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_set_render_state(struct wined3d_cs *cs, enum wined3d_render_state state,
         DWORD value) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_set_texture_state(struct wined3d_cs *cs, UINT stage,
+        enum wined3d_texture_stage_state state, DWORD value) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d
