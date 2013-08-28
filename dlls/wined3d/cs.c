@@ -41,6 +41,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_STREAM_SOURCE_FREQ,
     WINED3D_CS_OP_SET_INDEX_BUFFER,
     WINED3D_CS_OP_SET_TEXTURE,
+    WINED3D_CS_OP_SET_VERTEX_SHADER,
     WINED3D_CS_OP_STOP,
 };
 
@@ -174,6 +175,12 @@ struct wined3d_cs_set_texture
     enum wined3d_cs_op opcode;
     UINT stage;
     struct wined3d_texture *texture;
+};
+
+struct wined3d_cs_set_shader
+{
+    enum wined3d_cs_op opcode;
+    struct wined3d_shader *shader;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -403,7 +410,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
     cs->state.load_base_vertex_index = op->state.load_base_vertex_index;
     cs->state.gl_primitive_type = op->state.gl_primitive_type;
 
-    cs->state.vertex_shader = op->state.vertex_shader;
     memcpy(cs->state.vs_cb, op->state.vs_cb, sizeof(cs->state.vs_cb));
     memcpy(cs->state.vs_sampler, op->state.vs_sampler, sizeof(cs->state.vs_sampler));
     memcpy(cs->state.vs_consts_b, op->state.vs_consts_b, sizeof(cs->state.vs_consts_b));
@@ -448,7 +454,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
     op->state.load_base_vertex_index = state->load_base_vertex_index;
     op->state.gl_primitive_type = state->gl_primitive_type;
 
-    op->state.vertex_shader = state->vertex_shader;
     memcpy(op->state.vs_cb, state->vs_cb, sizeof(op->state.vs_cb));
     memcpy(op->state.vs_sampler, state->vs_sampler, sizeof(op->state.vs_sampler));
     memcpy(op->state.vs_consts_b, state->vs_consts_b, sizeof(op->state.vs_consts_b));
@@ -890,6 +895,27 @@ void wined3d_cs_emit_set_texture(struct wined3d_cs *cs, UINT stage, struct wined
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_vertex_shader(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_shader *op = data;
+
+    cs->state.vertex_shader = op->shader;
+    device_invalidate_state(cs->device, STATE_VSHADER);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_vertex_shader(struct wined3d_cs *cs, struct wined3d_shader *shader)
+{
+    struct wined3d_cs_set_shader *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SET_VERTEX_SHADER;
+    op->shader = shader;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -910,6 +936,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_STREAM_SOURCE_FREQ */ wined3d_cs_exec_set_stream_source_freq,
     /* WINED3D_CS_OP_SET_INDEX_BUFFER       */ wined3d_cs_exec_set_index_buffer,
     /* WINED3D_CS_OP_SET_TEXTURE            */ wined3d_cs_exec_set_texture,
+    /* WINED3D_CS_OP_SET_VERTEX_SHADER      */ wined3d_cs_exec_set_vertex_shader,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
