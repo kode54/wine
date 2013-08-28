@@ -38,6 +38,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_DEPTH_STENCIL,
     WINED3D_CS_OP_SET_VERTEX_DECLARATION,
     WINED3D_CS_OP_SET_STREAM_SOURCE,
+    WINED3D_CS_OP_SET_STREAM_SOURCE_FREQ,
     WINED3D_CS_OP_STOP,
 };
 
@@ -149,6 +150,14 @@ struct wined3d_cs_set_stream_source
     struct wined3d_buffer *buffer;
     UINT offset;
     UINT stride;
+};
+
+struct wined3d_cs_set_stream_source_freq
+{
+    enum wined3d_cs_op opcode;
+    UINT stream_idx;
+    UINT frequency;
+    UINT flags;
 };
 
 static CRITICAL_SECTION wined3d_cs_list_mutex;
@@ -369,17 +378,11 @@ void wined3d_cs_emit_draw(struct wined3d_cs *cs, UINT start_idx, UINT index_coun
 
 static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const void *data)
 {
-    unsigned int i;
     const struct wined3d_cs_stateblock *op = data;
 
     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
      * ops for setting states */
     memcpy(cs->state.stream_output, op->state.stream_output, sizeof(cs->state.stream_output));
-    for (i = 0; i < sizeof(cs->state.streams) / sizeof(*cs->state.streams); i++)
-    {
-        cs->state.streams[i].frequency = op->state.streams[i].frequency;
-        cs->state.streams[i].flags = op->state.streams[i].flags;
-    }
     cs->state.index_buffer = op->state.index_buffer;
     cs->state.index_format = op->state.index_format;
     cs->state.base_vertex_index = op->state.base_vertex_index;
@@ -420,7 +423,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
 
 void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct wined3d_state *state)
 {
-    unsigned int i;
     struct wined3d_cs_stateblock *op;
 
     op = cs->ops->require_space(cs, sizeof(*op));
@@ -429,11 +431,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
      * ops for setting states */
     memcpy(op->state.stream_output, state->stream_output, sizeof(op->state.stream_output));
-    for (i = 0; i < sizeof(cs->state.streams) / sizeof(*cs->state.streams); i++)
-    {
-        op->state.streams[i].frequency = state->streams[i].frequency;
-        op->state.streams[i].flags = state->streams[i].flags;
-    }
     op->state.index_buffer = state->index_buffer;
     op->state.index_format = state->index_format;
     op->state.base_vertex_index = state->base_vertex_index;
@@ -752,6 +749,33 @@ void wined3d_cs_emit_set_stream_source(struct wined3d_cs *cs, UINT stream_idx,
     cs->ops->submit(cs);
 }
 
+static UINT wined3d_cs_exec_set_stream_source_freq(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_stream_source_freq *op = data;
+    struct wined3d_stream_state *stream;
+
+    stream = &cs->state.streams[op->stream_idx];
+    stream->frequency = op->frequency;
+    stream->flags = op->flags;
+
+    device_invalidate_state(cs->device, STATE_STREAMSRC);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_set_stream_source_freq(struct wined3d_cs *cs, UINT stream_idx, UINT frequency, UINT flags)
+{
+    struct wined3d_cs_set_stream_source_freq *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SET_STREAM_SOURCE_FREQ;
+    op->stream_idx = stream_idx;
+    op->frequency = frequency;
+    op->flags = flags;
+
+    cs->ops->submit(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
@@ -769,6 +793,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_DEPTH_STENCIL      */ wined3d_cs_exec_set_depth_stencil,
     /* WINED3D_CS_OP_SET_VERTEX_DECLARATION */ wined3d_cs_exec_set_vertex_declaration,
     /* WINED3D_CS_OP_SET_STREAM_SOURCE      */ wined3d_cs_exec_set_stream_source,
+    /* WINED3D_CS_OP_SET_STREAM_SOURCE_FREQ */ wined3d_cs_exec_set_stream_source_freq,
 };
 
 static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
