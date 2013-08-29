@@ -757,3 +757,12 @@ HRESULT CDECL wined3d_volume_create(struct wined3d_device *device, UINT width, U
 
     return WINED3D_OK;
 }
+
+void wined3d_volume_get_memory(const struct wined3d_volume *volume, struct wined3d_bo_address *data)
+{
+    data->buffer_object = volume->pbo;
+    if (data->buffer_object)
+        data->addr = NULL;
+    else
+        data->addr = volume->resource.heap_memory;
+}
