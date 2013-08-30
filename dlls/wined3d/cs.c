@@ -2211,6 +2211,7 @@ static UINT wined3d_cs_exec_update_texture(struct wined3d_cs *cs, const void *da
     context_release(context);
 
     wined3d_resource_dec_fence(&op->src->resource);
+    wined3d_resource_dec_fence(&op->dst->resource);
 
     return sizeof(*op);
 }
@@ -2226,6 +2227,7 @@ void wined3d_cs_emit_update_texture(struct wined3d_cs *cs, struct wined3d_textur
     op->dst = dst;
 
     wined3d_resource_inc_fence(&op->src->resource);
+    wined3d_resource_inc_fence(&op->dst->resource);
 
     cs->ops->submit(cs, sizeof(*op));
 }
