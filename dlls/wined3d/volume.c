@@ -529,7 +529,7 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
     }
     flags = wined3d_resource_sanitize_map_flags(&volume->resource, flags);
 
-    if (flags & (WINED3D_MAP_DISCARD | WINED3D_MAP_READONLY | WINED3D_MAP_NOOVERWRITE))
+    if (flags & (WINED3D_MAP_READONLY | WINED3D_MAP_NOOVERWRITE))
         FIXME("Fast path for 0x%04x maps not implemented yet\n", flags);
 
     wined3d_resource_wait_fence(&volume->container->resource);
@@ -543,15 +543,35 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
         wined3d_volume_prepare_pbo(volume);
 
         if (flags & WINED3D_MAP_DISCARD)
+        {
             wined3d_volume_validate_location(volume, WINED3D_LOCATION_BUFFER);
+            if (volume->resource.access_fence)
+            {
+                struct wined3d_gl_bo *new_bo;
+                new_bo = wined3d_device_get_bo(device, volume->resource.size,
+                        GL_STREAM_DRAW_ARB, GL_PIXEL_UNPACK_BUFFER_ARB);
+                volume->resource.map_buffer = new_bo;
+            }
+        }
         else if (!(volume->locations & WINED3D_LOCATION_BUFFER))
+        {
             wined3d_cs_emit_volume_load_location(device->cs, volume, WINED3D_LOCATION_BUFFER);
+        }
 
         mapflags &= ~GL_MAP_FLUSH_EXPLICIT_BIT;
         base_memory = wined3d_cs_emit_bo_map(device->cs, volume->resource.map_buffer, mapflags);
     }
     else
     {
+        if (flags & WINED3D_MAP_DISCARD)
+        {
+            /* This happens either with converted volumes or when PBOs are not
+             * supported. Both cases are probably slow either way. When implementing
+             * this, keep GL_APPLE_client_storage in mind */
+            WARN_(d3d_perf)("Discard maps without PBOs are not yet implemented\n");
+            wined3d_resource_wait_fence(&volume->container->resource);
+        }
+
         if (!volume_prepare_system_memory(volume))
         {
             WARN("Out of memory.\n");
@@ -608,6 +628,7 @@ struct wined3d_volume * CDECL wined3d_volume_from_resource(struct wined3d_resour
 HRESULT CDECL wined3d_volume_unmap(struct wined3d_volume *volume)
 {
     const struct wined3d_device *device = volume->resource.device;
+    struct wined3d_gl_bo *swap_bo = NULL;
     TRACE("volume %p.\n", volume);
 
     if (!(volume->flags & WINED3D_VFLAG_LOCKED))
@@ -619,8 +640,11 @@ HRESULT CDECL wined3d_volume_unmap(struct wined3d_volume *volume)
     if (volume->flags & WINED3D_VFLAG_PBO)
         wined3d_cs_emit_bo_unmap(device->cs, volume->resource.map_buffer);
 
+    if (volume->resource.buffer != volume->resource.map_buffer)
+        swap_bo = volume->resource.map_buffer;
+
     if (volume->flags & WINED3D_VFLAG_DIRTIFY_ON_UNMAP)
-        wined3d_cs_emit_volume_dirtify(device->cs, volume);
+        wined3d_cs_emit_volume_dirtify(device->cs, volume, swap_bo);
 
     volume->flags &= ~WINED3D_VFLAG_LOCKED;
 

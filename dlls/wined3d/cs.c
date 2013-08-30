@@ -477,6 +477,7 @@ struct wined3d_cs_volume_dirtify
 {
     enum wined3d_cs_op opcode;
     struct wined3d_volume *volume;
+    struct wined3d_gl_bo *swap_bo;
 };
 
 static void wined3d_cs_mt_submit(struct wined3d_cs *cs, size_t size)
@@ -2324,18 +2325,22 @@ void wined3d_cs_emit_bo_init(struct wined3d_cs *cs, struct wined3d_gl_bo *bo)
     cs->ops->finish_prio(cs);
 }
 
-static UINT wined3d_cs_exec_bo_destroy(struct wined3d_cs *cs, const void *data)
+static void destroy_bo(struct wined3d_device *device, struct wined3d_gl_bo *bo)
 {
-    const struct wined3d_cs_bo_misc *op = data;
-    struct wined3d_context *context = context_acquire(cs->device, NULL);
+    struct wined3d_context *context = context_acquire(device, NULL);
     const struct wined3d_gl_info *gl_info = context->gl_info;
 
-    GL_EXTCALL(glDeleteBuffersARB(1, &op->bo->name));
+    GL_EXTCALL(glDeleteBuffersARB(1, &bo->name));
     checkGLcall("glDeleteBuffersARB");
     context_release(context);
 
-    HeapFree(GetProcessHeap(), 0, op->bo);
+    HeapFree(GetProcessHeap(), 0, bo);
+}
 
+static UINT wined3d_cs_exec_bo_destroy(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_bo_misc *op = data;
+    destroy_bo(cs->device, op->bo);
     return sizeof(*op);
 }
 
@@ -2449,24 +2454,33 @@ void wined3d_cs_emit_volume_load_location(struct wined3d_cs *cs, struct wined3d_
 static UINT wined3d_cs_exec_volume_dirtify(struct wined3d_cs *cs, const void *data)
 {
     const struct wined3d_cs_volume_dirtify *op = data;
+    struct wined3d_volume *volume = op->volume;
 
     wined3d_texture_set_dirty(op->volume->container, TRUE);
 
-    if (op->volume->flags & WINED3D_VFLAG_PBO)
-        wined3d_volume_invalidate_location(op->volume, ~WINED3D_LOCATION_BUFFER);
+    if (op->swap_bo)
+    {
+        destroy_bo(cs->device, volume->resource.buffer);
+        volume->resource.buffer = op->swap_bo;
+    }
+
+    if (volume->flags & WINED3D_VFLAG_PBO)
+        wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_BUFFER);
     else
-        wined3d_volume_invalidate_location(op->volume, ~WINED3D_LOCATION_SYSMEM);
+        wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_SYSMEM);
 
     return sizeof(*op);
 }
 
-void wined3d_cs_emit_volume_dirtify(struct wined3d_cs *cs, struct wined3d_volume *volume)
+void wined3d_cs_emit_volume_dirtify(struct wined3d_cs *cs, struct wined3d_volume *volume,
+        struct wined3d_gl_bo *swap_bo)
 {
     struct wined3d_cs_volume_dirtify *op;
 
     op = cs->ops->require_space(cs, sizeof(*op));
     op->opcode = WINED3D_CS_OP_VOLUME_DIRTIFY;
     op->volume = volume;
+    op->swap_bo = swap_bo;
 
     cs->ops->submit(cs, sizeof(*op));
 }
