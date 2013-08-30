@@ -520,6 +520,17 @@ struct wined3d_resource * CDECL wined3d_volume_get_resource(struct wined3d_volum
     return &volume->resource;
 }
 
+static void wined3d_volume_wait_cs(const struct wined3d_volume *volume)
+{
+    if (wined3d_settings.cs_multithreaded)
+    {
+        struct wined3d_device *device = volume->resource.device;
+        FIXME("Waiting for cs.\n");
+        wined3d_cs_emit_glfinish(device->cs);
+        device->cs->ops->finish(device->cs);
+    }
+}
+
 HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
         struct wined3d_map_desc *map_desc, const struct wined3d_box *box, DWORD flags)
 {
@@ -531,14 +542,6 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
     TRACE("volume %p, map_desc %p, box %p, flags %#x.\n",
             volume, map_desc, box, flags);
 
-    if (wined3d_settings.cs_multithreaded)
-    {
-        struct wined3d_device *device = volume->resource.device;
-        FIXME("Waiting for cs.\n");
-        wined3d_cs_emit_glfinish(device->cs);
-        device->cs->ops->finish(device->cs);
-    }
-
     if (!(volume->resource.access_flags & WINED3D_RESOURCE_ACCESS_CPU))
     {
         WARN("Volume %p is not CPU accessible.\n", volume);
@@ -546,6 +549,11 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
         return WINED3DERR_INVALIDCALL;
     }
     flags = wined3d_resource_sanitize_map_flags(&volume->resource, flags);
+
+    if (!(volume->resource.access_flags & WINED3D_RESOURCE_ACCESS_GPU))
+        wined3d_resource_wait_fence(&volume->container->resource);
+    else
+        wined3d_volume_wait_cs(volume);
 
     if (volume->flags & WINED3D_VFLAG_PBO)
     {
