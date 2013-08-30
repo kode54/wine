@@ -2047,7 +2047,7 @@ struct wined3d_resource
     DWORD priority;
     BYTE *allocatedMemory; /* Pointer to the real data location */
     void *heap_memory;
-    struct wined3d_gl_bo *buffer;
+    struct wined3d_gl_bo *buffer, *map_buffer;
     struct list privateData;
     struct list resource_list_entry;
     LONG access_fence;

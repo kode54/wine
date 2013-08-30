@@ -365,6 +365,7 @@ static void wined3d_volume_prepare_pbo(struct wined3d_volume *volume, struct win
 
     volume->resource.buffer = wined3d_device_get_bo(volume->resource.device,
             volume->resource.size, GL_STREAM_DRAW_ARB, GL_PIXEL_UNPACK_BUFFER_ARB, context);
+    volume->resource.map_buffer = volume->resource.buffer;
     if (!volume->resource.buffer)
         ERR("Failed to create buffer for volume %p\n", volume);
     else
@@ -379,6 +380,7 @@ static void wined3d_volume_free_pbo(struct wined3d_volume *volume)
     TRACE("Deleting PBO %u belonging to volume %p.\n", volume->resource.buffer->name, volume);
     wined3d_device_release_bo(device, volume->resource.buffer, context);
     volume->resource.buffer = NULL;
+    volume->resource.map_buffer = NULL;
 
     context_release(context);
 }
@@ -563,7 +565,7 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
         else
             wined3d_volume_load_location(volume, context, WINED3D_LOCATION_BUFFER);
 
-        GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->resource.buffer->name));
+        GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->resource.map_buffer->name));
 
         if (gl_info->supported[ARB_MAP_BUFFER_RANGE])
         {
@@ -668,7 +670,7 @@ HRESULT CDECL wined3d_volume_unmap(struct wined3d_volume *volume)
         struct wined3d_context *context = context_acquire(device, NULL);
         const struct wined3d_gl_info *gl_info = context->gl_info;
 
-        GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->resource.buffer->name));
+        GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->resource.map_buffer->name));
         GL_EXTCALL(glUnmapBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB));
         GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0));
         checkGLcall("Unmap PBO");
