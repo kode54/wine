@@ -2651,6 +2651,9 @@ void wined3d_cs_emit_surface_flip(struct wined3d_cs *cs, struct wined3d_surface 
         struct wined3d_surface *override) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_bo_init(struct wined3d_cs *cs, struct wined3d_gl_bo *bo) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_bo_destroy(struct wined3d_cs *cs, struct wined3d_gl_bo *bo) DECLSPEC_HIDDEN;
+BYTE *wined3d_cs_emit_bo_map(struct wined3d_cs *cs, const struct wined3d_gl_bo *bo,
+        GLbitfield flags) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_bo_unmap(struct wined3d_cs *cs, struct wined3d_gl_bo *bo) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_volume_load_location(struct wined3d_cs *cs, struct wined3d_volume *volume,
         DWORD location) DECLSPEC_HIDDEN;
 

@@ -549,8 +549,7 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
      * data transfers to finish */
     if (volume->flags & WINED3D_VFLAG_PBO)
     {
-        struct wined3d_context *context;
-        const struct wined3d_gl_info *gl_info;
+        GLbitfield mapflags = wined3d_resource_gl_map_flags(flags);
 
         wined3d_volume_prepare_pbo(volume);
 
@@ -559,27 +558,8 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
         else if (!(volume->locations & WINED3D_LOCATION_BUFFER))
             wined3d_cs_emit_volume_load_location(device->cs, volume, WINED3D_LOCATION_BUFFER);
 
-        context = context_acquire(device, NULL);
-        gl_info = context->gl_info;
-
-        GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->resource.map_buffer->name));
-
-        if (gl_info->supported[ARB_MAP_BUFFER_RANGE])
-        {
-            GLbitfield mapflags = wined3d_resource_gl_map_flags(flags);
-            mapflags &= ~GL_MAP_FLUSH_EXPLICIT_BIT;
-            base_memory = GL_EXTCALL(glMapBufferRange(GL_PIXEL_UNPACK_BUFFER_ARB,
-                    0, volume->resource.size, mapflags));
-        }
-        else
-        {
-            base_memory = GL_EXTCALL(glMapBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0));
-        }
-
-        GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0));
-        checkGLcall("Map PBO");
-
-        context_release(context);
+        mapflags &= ~GL_MAP_FLUSH_EXPLICIT_BIT;
+        base_memory = wined3d_cs_emit_bo_map(device->cs, volume->resource.map_buffer, mapflags);
     }
     else
     {
@@ -657,18 +637,7 @@ HRESULT CDECL wined3d_volume_unmap(struct wined3d_volume *volume)
     }
 
     if (volume->flags & WINED3D_VFLAG_PBO)
-    {
-        struct wined3d_device *device = volume->resource.device;
-        struct wined3d_context *context = context_acquire(device, NULL);
-        const struct wined3d_gl_info *gl_info = context->gl_info;
-
-        GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->resource.map_buffer->name));
-        GL_EXTCALL(glUnmapBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB));
-        GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0));
-        checkGLcall("Unmap PBO");
-
-        context_release(context);
-    }
+        wined3d_cs_emit_bo_unmap(volume->resource.device->cs, volume->resource.map_buffer);
 
     volume->flags &= ~WINED3D_VFLAG_LOCKED;
 

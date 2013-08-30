@@ -85,6 +85,8 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SURFACE_FLIP,
     WINED3D_CS_OP_BO_INIT,
     WINED3D_CS_OP_BO_DESTROY,
+    WINED3D_CS_OP_BO_MAP,
+    WINED3D_CS_OP_BO_UNMAP,
     WINED3D_CS_OP_VOLUME_LOAD_LOCATION,
     WINED3D_CS_OP_STOP,
 };
@@ -449,10 +451,18 @@ struct wined3d_cs_surface_flip
     struct wined3d_surface *surface, *override;
 };
 
-struct wined3d_cs_bo_init_destroy
+struct wined3d_cs_bo_misc
 {
     enum wined3d_cs_op opcode;
     struct wined3d_gl_bo *bo;
+};
+
+struct wined3d_cs_bo_map
+{
+    enum wined3d_cs_op opcode;
+    const struct wined3d_gl_bo *bo;
+    GLbitfield flags;
+    BYTE **ptr;
 };
 
 struct wined3d_cs_volume_load_location
@@ -2267,7 +2277,7 @@ void wined3d_cs_emit_surface_flip(struct wined3d_cs *cs, struct wined3d_surface 
 
 static UINT wined3d_cs_exec_bo_init(struct wined3d_cs *cs, const void *data)
 {
-    const struct wined3d_cs_bo_init_destroy *op = data;
+    const struct wined3d_cs_bo_misc *op = data;
     struct wined3d_context *context = context_acquire(cs->device, NULL);
     const struct wined3d_gl_info *gl_info = context->gl_info;
     struct wined3d_gl_bo *bo = op->bo;
@@ -2280,16 +2290,13 @@ static UINT wined3d_cs_exec_bo_init(struct wined3d_cs *cs, const void *data)
     GL_EXTCALL(glBindBufferARB(bo->type_hint, 0));
     checkGLcall("Create buffer object");
 
-    /* Temporary flush until map calls are moved into the cs. */
-    gl_info->gl_ops.gl.p_glFlush();
-
     context_release(context);
     return sizeof(*op);
 }
 
 void wined3d_cs_emit_bo_init(struct wined3d_cs *cs, struct wined3d_gl_bo *bo)
 {
-    struct wined3d_cs_bo_init_destroy *op;
+    struct wined3d_cs_bo_misc *op;
 
     op = cs->ops->require_space_prio(cs, sizeof(*op));
     op->opcode = WINED3D_CS_OP_BO_INIT;
@@ -2301,7 +2308,7 @@ void wined3d_cs_emit_bo_init(struct wined3d_cs *cs, struct wined3d_gl_bo *bo)
 
 static UINT wined3d_cs_exec_bo_destroy(struct wined3d_cs *cs, const void *data)
 {
-    const struct wined3d_cs_bo_init_destroy *op = data;
+    const struct wined3d_cs_bo_misc *op = data;
     struct wined3d_context *context = context_acquire(cs->device, NULL);
     const struct wined3d_gl_info *gl_info = context->gl_info;
 
@@ -2316,13 +2323,84 @@ static UINT wined3d_cs_exec_bo_destroy(struct wined3d_cs *cs, const void *data)
 
 void wined3d_cs_emit_bo_destroy(struct wined3d_cs *cs, struct wined3d_gl_bo *bo)
 {
-    struct wined3d_cs_bo_init_destroy *op;
+    struct wined3d_cs_bo_misc *op;
 
     op = cs->ops->require_space(cs, sizeof(*op));
     op->opcode = WINED3D_CS_OP_BO_DESTROY;
     op->bo = bo;
 
     cs->ops->submit(cs, sizeof(*op));
+}
+
+static UINT wined3d_cs_exec_bo_map(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_bo_map *op = data;
+    const struct wined3d_gl_bo *bo = op->bo;
+    struct wined3d_context *context = context_acquire(cs->device, NULL);
+    const struct wined3d_gl_info *gl_info = context->gl_info;
+
+    GL_EXTCALL(glBindBufferARB(bo->type_hint, bo->name));
+    if (bo->type_hint == GL_ELEMENT_ARRAY_BUFFER_ARB)
+        context_invalidate_state(context, STATE_INDEXBUFFER);
+
+    if (gl_info->supported[ARB_MAP_BUFFER_RANGE])
+        *op->ptr = GL_EXTCALL(glMapBufferRange(bo->type_hint, 0, bo->size, op->flags));
+    else
+        *op->ptr = GL_EXTCALL(glMapBufferARB(bo->type_hint, 0));
+
+    GL_EXTCALL(glBindBufferARB(bo->type_hint, 0));
+    checkGLcall("Map PBO");
+
+    context_release(context);
+
+    return sizeof(*op);
+}
+
+BYTE *wined3d_cs_emit_bo_map(struct wined3d_cs *cs, const struct wined3d_gl_bo *bo, GLbitfield flags)
+{
+    struct wined3d_cs_bo_map *op;
+    BYTE *ret;
+
+    op = cs->ops->require_space_prio(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_BO_MAP;
+    op->bo = bo;
+    op->flags = flags;
+    op->ptr = &ret;
+
+    cs->ops->submit_prio(cs, sizeof(*op));
+    cs->ops->finish_prio(cs);
+
+    return ret;
+}
+
+static UINT wined3d_cs_exec_bo_unmap(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_bo_misc *op = data;
+    const struct wined3d_gl_bo *bo = op->bo;
+    struct wined3d_context *context = context_acquire(cs->device, NULL);
+    const struct wined3d_gl_info *gl_info = context->gl_info;
+
+    GL_EXTCALL(glBindBufferARB(bo->type_hint, bo->name));
+    if (bo->type_hint == GL_ELEMENT_ARRAY_BUFFER_ARB)
+        context_invalidate_state(context, STATE_INDEXBUFFER);
+    GL_EXTCALL(glUnmapBufferARB(bo->type_hint));
+    GL_EXTCALL(glBindBufferARB(bo->type_hint, 0));
+    checkGLcall("Map BO");
+
+    context_release(context);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_bo_unmap(struct wined3d_cs *cs, struct wined3d_gl_bo *bo)
+{
+    struct wined3d_cs_bo_misc *op;
+
+    op = cs->ops->require_space_prio(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_BO_UNMAP;
+    op->bo = bo;
+
+    cs->ops->submit_prio(cs, sizeof(*op));
 }
 
 static UINT wined3d_cs_exec_volume_load_location(struct wined3d_cs *cs, const void *data)
@@ -2414,6 +2492,8 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SURFACE_FLIP           */ wined3d_cs_exec_surface_flip,
     /* WINED3D_CS_OP_BO_INIT                */ wined3d_cs_exec_bo_init,
     /* WINED3D_CS_OP_BO_DESTROY             */ wined3d_cs_exec_bo_destroy,
+    /* WINED3D_CS_OP_BO_MAP                 */ wined3d_cs_exec_bo_map,
+    /* WINED3D_CS_OP_BO_UNMAP               */ wined3d_cs_exec_bo_unmap,
     /* WINED3D_CS_OP_VOLUME_LOAD_LOCATION   */ wined3d_cs_exec_volume_load_location,
 };
 
