@@ -2159,6 +2159,8 @@ void wined3d_texture_set_dirty(struct wined3d_texture *texture, BOOL dirty) DECL
 #define WINED3D_VFLAG_ALLOCATED         0x00000002
 #define WINED3D_VFLAG_SRGB_ALLOCATED    0x00000004
 #define WINED3D_VFLAG_PBO               0x00000008
+#define WINED3D_VFLAG_PBO               0x00000008
+#define WINED3D_VFLAG_DIRTIFY_ON_UNMAP  0x00000010
 
 #define WINED3D_LOCATION_DISCARDED      0x00000001
 #define WINED3D_LOCATION_SYSMEM         0x00000002

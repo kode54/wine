@@ -628,14 +628,9 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
     }
 
     if (!(flags & (WINED3D_MAP_NO_DIRTY_UPDATE | WINED3D_MAP_READONLY)))
-    {
-        wined3d_texture_set_dirty(volume->container, TRUE);
-
-        if (volume->flags & WINED3D_VFLAG_PBO)
-            wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_BUFFER);
-        else
-            wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_SYSMEM);
-    }
+        volume->flags |= WINED3D_VFLAG_DIRTIFY_ON_UNMAP;
+    else
+        volume->flags &= ~WINED3D_VFLAG_DIRTIFY_ON_UNMAP;
 
     volume->flags |= WINED3D_VFLAG_LOCKED;
 
@@ -658,6 +653,16 @@ HRESULT CDECL wined3d_volume_unmap(struct wined3d_volume *volume)
     {
         WARN("Trying to unlock unlocked volume %p.\n", volume);
         return WINED3DERR_INVALIDCALL;
+    }
+
+    if (volume->flags & WINED3D_VFLAG_DIRTIFY_ON_UNMAP)
+    {
+        wined3d_texture_set_dirty(volume->container, TRUE);
+
+        if (volume->flags & WINED3D_VFLAG_PBO)
+            wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_BUFFER);
+        else
+            wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_SYSMEM);
     }
 
     if (volume->flags & WINED3D_VFLAG_PBO)
