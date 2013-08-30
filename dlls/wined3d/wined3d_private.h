@@ -2205,6 +2205,8 @@ void wined3d_volume_upload_data(struct wined3d_volume *volume, const struct wine
         const struct wined3d_bo_address *data) DECLSPEC_HIDDEN;
 void wined3d_volume_get_memory(const struct wined3d_volume *volume,
         struct wined3d_bo_address *data) DECLSPEC_HIDDEN;
+void wined3d_volume_load_location(struct wined3d_volume *volume,
+        struct wined3d_context *context, DWORD location) DECLSPEC_HIDDEN;
 
 struct wined3d_surface_dib
 {
@@ -2649,6 +2651,8 @@ void wined3d_cs_emit_surface_flip(struct wined3d_cs *cs, struct wined3d_surface 
         struct wined3d_surface *override) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_bo_init(struct wined3d_cs *cs, struct wined3d_gl_bo *bo) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_bo_destroy(struct wined3d_cs *cs, struct wined3d_gl_bo *bo) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_volume_load_location(struct wined3d_cs *cs, struct wined3d_volume *volume,
+        DWORD location) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d

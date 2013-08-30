@@ -85,6 +85,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SURFACE_FLIP,
     WINED3D_CS_OP_BO_INIT,
     WINED3D_CS_OP_BO_DESTROY,
+    WINED3D_CS_OP_VOLUME_LOAD_LOCATION,
     WINED3D_CS_OP_STOP,
 };
 
@@ -453,6 +454,14 @@ struct wined3d_cs_bo_init_destroy
     enum wined3d_cs_op opcode;
     struct wined3d_gl_bo *bo;
 };
+
+struct wined3d_cs_volume_load_location
+{
+    enum wined3d_cs_op opcode;
+    struct wined3d_volume *volume;
+    DWORD location;
+};
+
 
 static void wined3d_cs_mt_submit(struct wined3d_cs *cs, size_t size)
 {
@@ -2316,6 +2325,31 @@ void wined3d_cs_emit_bo_destroy(struct wined3d_cs *cs, struct wined3d_gl_bo *bo)
     cs->ops->submit(cs, sizeof(*op));
 }
 
+static UINT wined3d_cs_exec_volume_load_location(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_volume_load_location *op = data;
+    struct wined3d_context *context = context_acquire(cs->device, NULL);
+
+    wined3d_volume_load_location(op->volume, context, op->location);
+    context_release(context);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_volume_load_location(struct wined3d_cs *cs, struct wined3d_volume *volume,
+        DWORD location)
+{
+    struct wined3d_cs_volume_load_location *op;
+
+    op = cs->ops->require_space_prio(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_VOLUME_LOAD_LOCATION;
+    op->volume = volume;
+    op->location = location;
+
+    cs->ops->submit_prio(cs, sizeof(*op));
+    cs->ops->finish_prio(cs);
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_NOP                    */ wined3d_cs_exec_nop,
@@ -2380,6 +2414,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SURFACE_FLIP           */ wined3d_cs_exec_surface_flip,
     /* WINED3D_CS_OP_BO_INIT                */ wined3d_cs_exec_bo_init,
     /* WINED3D_CS_OP_BO_DESTROY             */ wined3d_cs_exec_bo_destroy,
+    /* WINED3D_CS_OP_VOLUME_LOAD_LOCATION   */ wined3d_cs_exec_volume_load_location,
 };
 
 static inline void *_wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size, BOOL prio)

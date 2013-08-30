@@ -196,7 +196,7 @@ static void wined3d_volume_srgb_transfer(struct wined3d_volume *volume,
 }
 
 /* Context activation is done by the caller. */
-static void wined3d_volume_load_location(struct wined3d_volume *volume,
+void wined3d_volume_load_location(struct wined3d_volume *volume,
         struct wined3d_context *context, DWORD location)
 {
     DWORD required_access = volume_access_from_location(location);
@@ -398,7 +398,6 @@ static void volume_unload(struct wined3d_resource *resource)
 {
     struct wined3d_volume *volume = volume_from_resource(resource);
     struct wined3d_device *device = volume->resource.device;
-    struct wined3d_context *context;
 
     if (volume->resource.pool == WINED3D_POOL_DEFAULT)
         ERR("Unloading DEFAULT pool volume.\n");
@@ -407,9 +406,7 @@ static void volume_unload(struct wined3d_resource *resource)
 
     if (volume_prepare_system_memory(volume))
     {
-        context = context_acquire(device, NULL);
-        wined3d_volume_load_location(volume, context, WINED3D_LOCATION_SYSMEM);
-        context_release(context);
+        wined3d_cs_emit_volume_load_location(device->cs, volume, WINED3D_LOCATION_SYSMEM);
         wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_SYSMEM);
     }
     else
@@ -530,8 +527,6 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
         struct wined3d_map_desc *map_desc, const struct wined3d_box *box, DWORD flags)
 {
     struct wined3d_device *device = volume->resource.device;
-    struct wined3d_context *context;
-    const struct wined3d_gl_info *gl_info;
     BYTE *base_memory;
 
     TRACE("volume %p, map_desc %p, box %p, flags %#x.\n",
@@ -550,17 +545,22 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
     else
         wined3d_volume_wait_cs(volume);
 
+    /* Note that the location flags are up to date because we waited for all
+     * data transfers to finish */
     if (volume->flags & WINED3D_VFLAG_PBO)
     {
-        wined3d_volume_prepare_pbo(volume);
+        struct wined3d_context *context;
+        const struct wined3d_gl_info *gl_info;
 
-        context = context_acquire(device, NULL);
-        gl_info = context->gl_info;
+        wined3d_volume_prepare_pbo(volume);
 
         if (flags & WINED3D_MAP_DISCARD)
             wined3d_volume_validate_location(volume, WINED3D_LOCATION_BUFFER);
-        else
-            wined3d_volume_load_location(volume, context, WINED3D_LOCATION_BUFFER);
+        else if (!(volume->locations & WINED3D_LOCATION_BUFFER))
+            wined3d_cs_emit_volume_load_location(device->cs, volume, WINED3D_LOCATION_BUFFER);
+
+        context = context_acquire(device, NULL);
+        gl_info = context->gl_info;
 
         GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->resource.map_buffer->name));
 
@@ -591,15 +591,10 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
         }
 
         if (flags & WINED3D_MAP_DISCARD)
-        {
             wined3d_volume_validate_location(volume, WINED3D_LOCATION_SYSMEM);
-        }
         else if (!(volume->locations & WINED3D_LOCATION_SYSMEM))
-        {
-            context = context_acquire(device, NULL);
-            wined3d_volume_load_location(volume, context, WINED3D_LOCATION_SYSMEM);
-            context_release(context);
-        }
+            wined3d_cs_emit_volume_load_location(device->cs, volume, WINED3D_LOCATION_SYSMEM);
+
         base_memory = volume->resource.allocatedMemory;
     }
 
