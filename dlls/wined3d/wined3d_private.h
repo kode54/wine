@@ -2036,6 +2036,7 @@ struct wined3d_resource
     void *heap_memory;
     struct list privateData;
     struct list resource_list_entry;
+    LONG access_fence;
 
     void *parent;
     const struct wined3d_parent_ops *parent_ops;
@@ -2055,6 +2056,21 @@ void resource_unload(struct wined3d_resource *resource) DECLSPEC_HIDDEN;
 DWORD wined3d_resource_sanitize_map_flags(const struct wined3d_resource *resource,
         DWORD flags) DECLSPEC_HIDDEN;
 GLbitfield wined3d_resource_gl_map_flags(DWORD d3d_flags) DECLSPEC_HIDDEN;
+
+static inline void wined3d_resource_inc_fence(struct wined3d_resource *resource)
+{
+    InterlockedIncrement(&resource->access_fence);
+}
+
+static inline void wined3d_resource_dec_fence(struct wined3d_resource *resource)
+{
+    InterlockedDecrement(&resource->access_fence);
+}
+
+static inline void wined3d_resource_wait_fence(struct wined3d_resource *resource)
+{
+    while(InterlockedCompareExchange(&resource->access_fence, 0, 0));
+}
 
 /* Tests show that the start address of resources is 32 byte aligned */
 #define RESOURCE_ALIGNMENT 16
