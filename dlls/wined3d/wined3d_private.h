@@ -1885,6 +1885,14 @@ struct wined3d_state
     DWORD render_states[WINEHIGHEST_RENDER_STATE + 1];
 };
 
+struct wined3d_gl_bo
+{
+    GLuint name;
+    GLenum usage;
+    GLenum type_hint;
+    UINT size;
+};
+
 /*****************************************************************************
  * IWineD3DDevice implementation structure
  */
@@ -1988,6 +1996,11 @@ void device_invalidate_state(const struct wined3d_device *device, DWORD state) D
 void device_invalidate_shader_constants(const struct wined3d_device *device, DWORD mask) DECLSPEC_HIDDEN;
 void device_exec_update_texture(struct wined3d_context *context, struct wined3d_texture *src_texture,
         struct wined3d_texture *dst_texture) DECLSPEC_HIDDEN;
+struct wined3d_gl_bo *wined3d_device_get_bo(struct wined3d_device *device, UINT size, GLenum gl_usage,
+        GLenum type_hint, struct wined3d_context *context) DECLSPEC_HIDDEN;
+void wined3d_device_release_bo(struct wined3d_device *device, struct wined3d_gl_bo *bo,
+        const struct wined3d_context *context) DECLSPEC_HIDDEN;
+
 
 static inline BOOL isStateDirty(const struct wined3d_context *context, DWORD state)
 {
@@ -2034,6 +2047,7 @@ struct wined3d_resource
     DWORD priority;
     BYTE *allocatedMemory; /* Pointer to the real data location */
     void *heap_memory;
+    struct wined3d_gl_bo *buffer;
     struct list privateData;
     struct list resource_list_entry;
     LONG access_fence;
@@ -2178,7 +2192,6 @@ struct wined3d_volume
     DWORD flags, locations;
     GLint texture_level;
     DWORD download_count;
-    GLuint pbo;
 };
 
 static inline struct wined3d_volume *volume_from_resource(struct wined3d_resource *resource)

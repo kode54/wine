@@ -239,7 +239,7 @@ static void wined3d_volume_load_location(struct wined3d_volume *volume,
             }
             else if (volume->locations & WINED3D_LOCATION_BUFFER)
             {
-                struct wined3d_bo_address data = {volume->pbo, NULL};
+                struct wined3d_bo_address data = {volume->resource.buffer->name, NULL};
                 wined3d_volume_upload_data(volume, context, &data);
             }
             else if (volume->locations & WINED3D_LOCATION_TEXTURE_RGB)
@@ -296,7 +296,7 @@ static void wined3d_volume_load_location(struct wined3d_volume *volume,
             break;
 
         case WINED3D_LOCATION_BUFFER:
-            if (!volume->pbo || !(volume->flags & WINED3D_VFLAG_PBO))
+            if (!volume->resource.buffer || !(volume->flags & WINED3D_VFLAG_PBO))
                 ERR("Trying to load WINED3D_LOCATION_BUFFER without setting it up first.\n");
 
             if (volume->locations & WINED3D_LOCATION_DISCARDED)
@@ -306,7 +306,7 @@ static void wined3d_volume_load_location(struct wined3d_volume *volume,
             }
             else if (volume->locations & (WINED3D_LOCATION_TEXTURE_RGB | WINED3D_LOCATION_TEXTURE_SRGB))
             {
-                struct wined3d_bo_address data = {volume->pbo, NULL};
+                struct wined3d_bo_address data = {volume->resource.buffer->name, NULL};
 
                 if (volume->locations & WINED3D_LOCATION_TEXTURE_RGB)
                     volume_bind_and_dirtify(volume, context, FALSE);
@@ -360,29 +360,26 @@ void wined3d_volume_load(struct wined3d_volume *volume, struct wined3d_context *
 /* Context activation is done by the caller. */
 static void wined3d_volume_prepare_pbo(struct wined3d_volume *volume, struct wined3d_context *context)
 {
-    const struct wined3d_gl_info *gl_info = context->gl_info;
-
-    if (volume->pbo)
+    if (volume->resource.buffer)
         return;
 
-    GL_EXTCALL(glGenBuffersARB(1, &volume->pbo));
-    GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->pbo));
-    GL_EXTCALL(glBufferDataARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->resource.size, NULL, GL_STREAM_DRAW_ARB));
-    GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0));
-    checkGLcall("Create PBO");
-
-    TRACE("Created PBO %u for volume %p.\n", volume->pbo, volume);
+    volume->resource.buffer = wined3d_device_get_bo(volume->resource.device,
+            volume->resource.size, GL_STREAM_DRAW_ARB, GL_PIXEL_UNPACK_BUFFER_ARB, context);
+    if (!volume->resource.buffer)
+        ERR("Failed to create buffer for volume %p\n", volume);
+    else
+        TRACE("Created PBO %u for volume %p.\n", volume->resource.buffer->name, volume);
 }
 
 static void wined3d_volume_free_pbo(struct wined3d_volume *volume)
 {
-    struct wined3d_context *context = context_acquire(volume->resource.device, NULL);
-    const struct wined3d_gl_info *gl_info = context->gl_info;
+    struct wined3d_device *device = volume->resource.device;
+    struct wined3d_context *context = context_acquire(device, NULL);
 
-    TRACE("Deleting PBO %u belonging to volume %p.\n", volume->pbo, volume);
-    GL_EXTCALL(glDeleteBuffersARB(1, &volume->pbo));
-    checkGLcall("glDeleteBuffersARB");
-    volume->pbo = 0;
+    TRACE("Deleting PBO %u belonging to volume %p.\n", volume->resource.buffer->name, volume);
+    wined3d_device_release_bo(device, volume->resource.buffer, context);
+    volume->resource.buffer = NULL;
+
     context_release(context);
 }
 
@@ -424,7 +421,7 @@ static void volume_unload(struct wined3d_resource *resource)
         wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_DISCARDED);
     }
 
-    if (volume->pbo)
+    if (volume->resource.buffer)
     {
         /* Should not happen because only dynamic default pool volumes
          * have a buffer, and those are not evicted by device_evit_managed_resources
@@ -479,7 +476,7 @@ ULONG CDECL wined3d_volume_decref(struct wined3d_volume *volume)
             volume->resource.device->cs->ops->finish(volume->resource.device->cs);
         }
 
-        if (volume->pbo)
+        if (volume->resource.buffer)
             wined3d_volume_free_pbo(volume);
 
         resource_cleanup(&volume->resource);
@@ -566,7 +563,7 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
         else
             wined3d_volume_load_location(volume, context, WINED3D_LOCATION_BUFFER);
 
-        GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->pbo));
+        GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->resource.buffer->name));
 
         if (gl_info->supported[ARB_MAP_BUFFER_RANGE])
         {
@@ -671,7 +668,7 @@ HRESULT CDECL wined3d_volume_unmap(struct wined3d_volume *volume)
         struct wined3d_context *context = context_acquire(device, NULL);
         const struct wined3d_gl_info *gl_info = context->gl_info;
 
-        GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->pbo));
+        GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->resource.buffer->name));
         GL_EXTCALL(glUnmapBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB));
         GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0));
         checkGLcall("Unmap PBO");
@@ -773,9 +770,14 @@ HRESULT CDECL wined3d_volume_create(struct wined3d_device *device, UINT width, U
 
 void wined3d_volume_get_memory(const struct wined3d_volume *volume, struct wined3d_bo_address *data)
 {
-    data->buffer_object = volume->pbo;
-    if (data->buffer_object)
+    if (volume->resource.buffer)
+    {
+        data->buffer_object = volume->resource.buffer->name;
         data->addr = NULL;
+    }
     else
+    {
+        data->buffer_object = 0;
         data->addr = volume->resource.heap_memory;
+    }
 }
