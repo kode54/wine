@@ -1997,9 +1997,8 @@ void device_invalidate_shader_constants(const struct wined3d_device *device, DWO
 void device_exec_update_texture(struct wined3d_context *context, struct wined3d_texture *src_texture,
         struct wined3d_texture *dst_texture) DECLSPEC_HIDDEN;
 struct wined3d_gl_bo *wined3d_device_get_bo(struct wined3d_device *device, UINT size, GLenum gl_usage,
-        GLenum type_hint, struct wined3d_context *context) DECLSPEC_HIDDEN;
-void wined3d_device_release_bo(struct wined3d_device *device, struct wined3d_gl_bo *bo,
-        const struct wined3d_context *context) DECLSPEC_HIDDEN;
+        GLenum type_hint) DECLSPEC_HIDDEN;
+void wined3d_device_release_bo(struct wined3d_device *device, struct wined3d_gl_bo *bo) DECLSPEC_HIDDEN;
 
 
 static inline BOOL isStateDirty(const struct wined3d_context *context, DWORD state)
@@ -2648,6 +2647,8 @@ void wined3d_cs_emit_update_texture(struct wined3d_cs *cs, struct wined3d_textur
 void wined3d_cs_emit_evict_resource(struct wined3d_cs *cs, struct wined3d_resource *resource) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_surface_flip(struct wined3d_cs *cs, struct wined3d_surface *surface,
         struct wined3d_surface *override) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_bo_init(struct wined3d_cs *cs, struct wined3d_gl_bo *bo) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_bo_destroy(struct wined3d_cs *cs, struct wined3d_gl_bo *bo) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d

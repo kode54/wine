@@ -4887,12 +4887,10 @@ LRESULT device_process_message(struct wined3d_device *device, HWND window, BOOL 
         return CallWindowProcA(proc, window, message, wparam, lparam);
 }
 
-/* Context activation is done by the caller */
 struct wined3d_gl_bo *wined3d_device_get_bo(struct wined3d_device *device, UINT size, GLenum gl_usage,
-        GLenum type_hint, struct wined3d_context *context)
+        GLenum type_hint)
 {
     struct wined3d_gl_bo *ret;
-    const struct wined3d_gl_info *gl_info;
 
     TRACE("device %p, size %u, gl_usage %u, type_hint %u\n", device, size, gl_usage,
             type_hint);
@@ -4904,38 +4902,15 @@ struct wined3d_gl_bo *wined3d_device_get_bo(struct wined3d_device *device, UINT 
     ret->size = size;
     ret->usage = gl_usage;
 
-    gl_info = context->gl_info;
-
-    GL_EXTCALL(glGenBuffersARB(1, &ret->name));
-    if (type_hint == GL_ELEMENT_ARRAY_BUFFER_ARB)
-        context_invalidate_state(context, STATE_INDEXBUFFER);
-    GL_EXTCALL(glBindBufferARB(type_hint, ret->name));
-    GL_EXTCALL(glBufferDataARB(type_hint, size, NULL, gl_usage));
-    GL_EXTCALL(glBindBufferARB(type_hint, 0));
-    checkGLcall("Create buffer object");
+    wined3d_cs_emit_bo_init(device->cs, ret);
 
     TRACE("Successfully created and set up buffer %u\n", ret->name);
     return ret;
 }
 
-/* Context activation is done by the caller */
-static void wined3d_device_destroy_bo(struct wined3d_device *device, const struct wined3d_context *context,
-        struct wined3d_gl_bo *bo)
-{
-    const struct wined3d_gl_info *gl_info = context->gl_info;
-    TRACE("device %p, bo %p, GL bo %u\n", device, bo, bo->name);
-
-    GL_EXTCALL(glDeleteBuffersARB(1, &bo->name));
-    checkGLcall("glDeleteBuffersARB");
-
-    HeapFree(GetProcessHeap(), 0, bo);
-}
-
-/* Context activation is done by the caller */
-void wined3d_device_release_bo(struct wined3d_device *device, struct wined3d_gl_bo *bo,
-        const struct wined3d_context *context)
+void wined3d_device_release_bo(struct wined3d_device *device, struct wined3d_gl_bo *bo)
 {
     TRACE("device %p, bo %p, GL bo %u\n", device, bo, bo->name);
 
-    wined3d_device_destroy_bo(device, context, bo);
+    wined3d_cs_emit_bo_destroy(device->cs, bo);
 }

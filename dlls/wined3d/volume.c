@@ -357,14 +357,13 @@ void wined3d_volume_load(struct wined3d_volume *volume, struct wined3d_context *
     }
 }
 
-/* Context activation is done by the caller. */
-static void wined3d_volume_prepare_pbo(struct wined3d_volume *volume, struct wined3d_context *context)
+static void wined3d_volume_prepare_pbo(struct wined3d_volume *volume)
 {
     if (volume->resource.buffer)
         return;
 
     volume->resource.buffer = wined3d_device_get_bo(volume->resource.device,
-            volume->resource.size, GL_STREAM_DRAW_ARB, GL_PIXEL_UNPACK_BUFFER_ARB, context);
+            volume->resource.size, GL_STREAM_DRAW_ARB, GL_PIXEL_UNPACK_BUFFER_ARB);
     volume->resource.map_buffer = volume->resource.buffer;
     if (!volume->resource.buffer)
         ERR("Failed to create buffer for volume %p\n", volume);
@@ -375,14 +374,11 @@ static void wined3d_volume_prepare_pbo(struct wined3d_volume *volume, struct win
 static void wined3d_volume_free_pbo(struct wined3d_volume *volume)
 {
     struct wined3d_device *device = volume->resource.device;
-    struct wined3d_context *context = context_acquire(device, NULL);
 
     TRACE("Deleting PBO %u belonging to volume %p.\n", volume->resource.buffer->name, volume);
-    wined3d_device_release_bo(device, volume->resource.buffer, context);
+    wined3d_device_release_bo(device, volume->resource.buffer);
     volume->resource.buffer = NULL;
     volume->resource.map_buffer = NULL;
-
-    context_release(context);
 }
 
 static BOOL volume_prepare_system_memory(struct wined3d_volume *volume)
@@ -556,10 +552,11 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
 
     if (volume->flags & WINED3D_VFLAG_PBO)
     {
+        wined3d_volume_prepare_pbo(volume);
+
         context = context_acquire(device, NULL);
         gl_info = context->gl_info;
 
-        wined3d_volume_prepare_pbo(volume, context);
         if (flags & WINED3D_MAP_DISCARD)
             wined3d_volume_validate_location(volume, WINED3D_LOCATION_BUFFER);
         else
