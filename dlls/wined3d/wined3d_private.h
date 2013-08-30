@@ -2656,6 +2656,7 @@ BYTE *wined3d_cs_emit_bo_map(struct wined3d_cs *cs, const struct wined3d_gl_bo *
 void wined3d_cs_emit_bo_unmap(struct wined3d_cs *cs, struct wined3d_gl_bo *bo) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_volume_load_location(struct wined3d_cs *cs, struct wined3d_volume *volume,
         DWORD location) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_volume_dirtify(struct wined3d_cs *cs, struct wined3d_volume *volume) DECLSPEC_HIDDEN;
 
 /* Direct3D terminology with little modifications. We do not have an issued state
  * because only the driver knows about it, but we have a created state because d3d

@@ -88,6 +88,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_BO_MAP,
     WINED3D_CS_OP_BO_UNMAP,
     WINED3D_CS_OP_VOLUME_LOAD_LOCATION,
+    WINED3D_CS_OP_VOLUME_DIRTIFY,
     WINED3D_CS_OP_STOP,
 };
 
@@ -472,6 +473,11 @@ struct wined3d_cs_volume_load_location
     DWORD location;
 };
 
+struct wined3d_cs_volume_dirtify
+{
+    enum wined3d_cs_op opcode;
+    struct wined3d_volume *volume;
+};
 
 static void wined3d_cs_mt_submit(struct wined3d_cs *cs, size_t size)
 {
@@ -2428,6 +2434,31 @@ void wined3d_cs_emit_volume_load_location(struct wined3d_cs *cs, struct wined3d_
     cs->ops->finish_prio(cs);
 }
 
+static UINT wined3d_cs_exec_volume_dirtify(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_volume_dirtify *op = data;
+
+    wined3d_texture_set_dirty(op->volume->container, TRUE);
+
+    if (op->volume->flags & WINED3D_VFLAG_PBO)
+        wined3d_volume_invalidate_location(op->volume, ~WINED3D_LOCATION_BUFFER);
+    else
+        wined3d_volume_invalidate_location(op->volume, ~WINED3D_LOCATION_SYSMEM);
+
+    return sizeof(*op);
+}
+
+void wined3d_cs_emit_volume_dirtify(struct wined3d_cs *cs, struct wined3d_volume *volume)
+{
+    struct wined3d_cs_volume_dirtify *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_VOLUME_DIRTIFY;
+    op->volume = volume;
+
+    cs->ops->submit(cs, sizeof(*op));
+}
+
 static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_NOP                    */ wined3d_cs_exec_nop,
@@ -2495,6 +2526,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_BO_MAP                 */ wined3d_cs_exec_bo_map,
     /* WINED3D_CS_OP_BO_UNMAP               */ wined3d_cs_exec_bo_unmap,
     /* WINED3D_CS_OP_VOLUME_LOAD_LOCATION   */ wined3d_cs_exec_volume_load_location,
+    /* WINED3D_CS_OP_VOLUME_DIRTIFY         */ wined3d_cs_exec_volume_dirtify,
 };
 
 static inline void *_wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size, BOOL prio)

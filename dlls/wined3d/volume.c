@@ -618,6 +618,7 @@ struct wined3d_volume * CDECL wined3d_volume_from_resource(struct wined3d_resour
 
 HRESULT CDECL wined3d_volume_unmap(struct wined3d_volume *volume)
 {
+    const struct wined3d_device *device = volume->resource.device;
     TRACE("volume %p.\n", volume);
 
     if (!(volume->flags & WINED3D_VFLAG_LOCKED))
@@ -626,18 +627,11 @@ HRESULT CDECL wined3d_volume_unmap(struct wined3d_volume *volume)
         return WINED3DERR_INVALIDCALL;
     }
 
-    if (volume->flags & WINED3D_VFLAG_DIRTIFY_ON_UNMAP)
-    {
-        wined3d_texture_set_dirty(volume->container, TRUE);
-
-        if (volume->flags & WINED3D_VFLAG_PBO)
-            wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_BUFFER);
-        else
-            wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_SYSMEM);
-    }
-
     if (volume->flags & WINED3D_VFLAG_PBO)
-        wined3d_cs_emit_bo_unmap(volume->resource.device->cs, volume->resource.map_buffer);
+        wined3d_cs_emit_bo_unmap(device->cs, volume->resource.map_buffer);
+
+    if (volume->flags & WINED3D_VFLAG_DIRTIFY_ON_UNMAP)
+        wined3d_cs_emit_volume_dirtify(device->cs, volume);
 
     volume->flags &= ~WINED3D_VFLAG_LOCKED;
 
