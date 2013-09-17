@@ -621,6 +621,8 @@
 @ stdcall RtlGetControlSecurityDescriptor(ptr ptr ptr)
 @ stdcall RtlGetCurrentDirectory_U(long ptr)
 @ stdcall RtlGetCurrentPeb()
+@ stdcall RtlGetCurrentProcessorNumber()
+@ stdcall RtlGetCurrentProcessorNumberEx(ptr)
 @ stdcall RtlGetCurrentTransaction()
 @ stdcall RtlGetDaclSecurityDescriptor(ptr ptr ptr ptr)
 @ stub RtlGetElementGenericTable

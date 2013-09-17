@@ -3849,9 +3849,56 @@ HRESULT WINAPI RegisterApplicationRecoveryCallback(APPLICATION_RECOVERY_CALLBACK
  */
 BOOL WINAPI GetNumaHighestNodeNumber(PULONG highestnode)
 {
-    FIXME("(%p): stub\n", highestnode);
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
-    return FALSE;
+    ULONG NtHighestNode, ReturnLength;
+    NTSTATUS status;
+    
+    TRACE("(%p)\n", highestnode);
+    
+    status = NtQuerySystemInformation(SystemNumaGroupAffinity,
+                                      &NtHighestNode, sizeof(NtHighestNode),
+                                      &ReturnLength);
+    
+    if (status != STATUS_SUCCESS)
+    {
+        SetLastError(RtlNtStatusToDosError(status));
+        return FALSE;
+    }
+    else if (ReturnLength < sizeof(NtHighestNode))
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    
+    *highestnode = NtHighestNode;
+    return TRUE;
+}
+
+/**********************************************************************
+ *           GetNumaNodeProcessorMaskEx     (KERNEL32.@)
+ */
+BOOL WINAPI GetNumaNodeProcessorMaskEx(USHORT node, PGROUP_AFFINITY affinity)
+{
+    TRACE("(%d %p)\n", node, affinity);
+    UCHAR Buffer[0x108];
+    NTSTATUS Status;
+    ULONG ReturnLength;
+    
+    Status = NtQuerySystemInformation(SystemNumaGroupAffinity, &Buffer, sizeof(Buffer), &ReturnLength);
+    
+    if (Status != STATUS_SUCCESS)
+    {
+        SetLastError(RtlNtStatusToDosError(Status));
+        return FALSE;
+    }
+    else if (node > *(ULONG*)&Buffer)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    
+    memcpy(affinity, &Buffer[8 + node * sizeof(GROUP_AFFINITY)], sizeof(GROUP_AFFINITY));
+    
+    return TRUE;
 }
 
 /**********************************************************************
@@ -3859,9 +3906,17 @@ BOOL WINAPI GetNumaHighestNodeNumber(PULONG highestnode)
  */
 BOOL WINAPI GetNumaNodeProcessorMask(UCHAR node, PULONGLONG mask)
 {
-    FIXME("(%c %p): stub\n", node, mask);
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
-    return FALSE;
+    TRACE("(%c %p)\n", node, mask);
+    GROUP_AFFINITY Affinity;
+    ULONG ProcessorNumber;
+    if (!GetNumaNodeProcessorMaskEx(node, &Affinity))
+        return FALSE;
+    RtlGetCurrentProcessorNumberEx(&ProcessorNumber);
+    if (ProcessorNumber != Affinity.Group)
+        *mask = 0;
+    else
+        *mask = Affinity.Mask;
+    return TRUE;
 }
 
 /**********************************************************************

@@ -2034,6 +2034,117 @@ NTSTATUS WINAPI NtQuerySystemInformation(
             RtlFreeHeap(GetProcessHeap(), 0, buf);
         }
         break;
+    case SystemNumaGroupAffinity:
+        {
+            /* This needs testing on systems with more than one physical
+             * processor, but a single processor system will always return
+             * zero, from what I've tested. */
+            len = 4;
+            if ( Length >= len)
+            {
+                ULONG HighestNode = 0;
+                memcpy( SystemInformation, &HighestNode, len);
+                
+                if ( Length >= len + 4 + sizeof(GROUP_AFFINITY))
+                {
+                    GROUP_AFFINITY Affinity;
+                    Affinity.Mask = (1 << NtCurrentTeb()->Peb->NumberOfProcessors) - 1;
+                    Affinity.Group = 0;
+                    memset( ((UCHAR*)SystemInformation) + 4, 0, 4);
+                    memcpy( ((UCHAR*)SystemInformation) + 8, &Affinity, sizeof(Affinity));
+                    len += 4 + sizeof(Affinity);
+                }
+            }
+            else ret = STATUS_INFO_LENGTH_MISMATCH;
+        }
+        break;
+    case SystemNumaAvailableMemory:
+        {
+            len = 4 + 4 + 8;
+            if ( Length >= len)
+            {
+                ULONG HighestNode = 0;
+                memcpy( SystemInformation, &HighestNode, 4);
+                memset( ((UCHAR*)SystemInformation) + 4, 0, 4);
+                
+                {
+                    static ULONGLONG	cached_memstatus;
+                    static int cache_lastchecked = 0;
+                    SYSTEM_INFO si;
+                    
+                    ULONGLONG memstatus;
+#ifdef linux
+                    FILE *f;
+#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
+                    unsigned long val;
+                    int mib[2];
+                    size_t size_sys;
+#elif defined(__APPLE__)
+                    unsigned int val;
+                    int mib[2];
+                    size_t size_sys;
+#elif defined(sun)
+                    unsigned long pagesize,freepages;
+                    int rval;
+#endif
+                    
+                    if (time(NULL)==cache_lastchecked) {
+                        memcpy( SystemInformation + 8, cached_memstatus, 8);
+                        break;
+                    }
+                    cache_lastchecked = time(NULL);
+
+                    memstatus = 16*1024*1024;
+                    
+#ifdef linux
+                    f = fopen( "/proc/meminfo", "r" );
+                    if (f)
+                    {
+                        char buffer[256];
+                        unsigned long total, used, free, shared, buffers, cached;
+                        
+                        memstatus = 0;
+                        while (fgets( buffer, sizeof(buffer), f ))
+                        {
+                            /* old style /proc/meminfo ... */
+                            if (sscanf( buffer, "Mem: %lu %lu %lu %lu %lu %lu",
+                                       &total, &used, &free, &shared, &buffers, &cached ))
+                            {
+                                memstatus += free + buffers + cached;
+                            }
+                            
+                            /* new style /proc/meminfo ... */
+                            if (sscanf(buffer, "MemFree: %lu", &free))
+                                memstatus = (ULONG64)free*1024;
+                            if (sscanf(buffer, "Buffers: %lu", &buffers))
+                                memstatus += (ULONG64)buffers*1024;
+                            if (sscanf(buffer, "Cached: %lu", &cached))
+                                memstatus += (ULONG64)cached*1024;
+                        }
+                        fclose( f );
+                    }
+#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__) || defined(__APPLE__)
+                    mib[0] = CTL_HW;
+                    mib[1] = HW_PHYSMEM;
+                    size_sys = sizeof(val);
+                    sysctl(mib, 2, &val, &size_sys, NULL, 0);
+                    if (val) memstatus = val;
+                    mib[1] = HW_USERMEM;
+                    size_sys = sizeof(val);
+                    sysctl(mib, 2, &val, &size_sys, NULL, 0);
+                    if (val) memstatus = val;
+#elif defined ( sun )
+                    pagesize=sysconf(_SC_PAGESIZE);
+                    freepages=sysconf(_SC_AVPHYS_PAGES);
+                    memstatus = pagesize*freepages;
+#endif
+                    cached_memstatus = memstatus;
+                    
+                    memcpy( ((UCHAR*)SystemInformation) + 8, memstatus, 8);
+                }
+            }
+        }
+        break;
     default:
 	FIXME("(0x%08x,%p,0x%08x,%p) stub\n",
 	      SystemInformationClass,SystemInformation,Length,ResultLength);

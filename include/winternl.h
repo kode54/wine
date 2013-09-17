@@ -784,12 +784,12 @@ typedef enum _SYSTEM_INFORMATION_CLASS {
     SystemAddVerifier = 52,
     SystemSessionProcessesInformation	= 53,
     Unknown54,
-    Unknown55,
+    SystemNumaGroupAffinity = 55,
     Unknown56,
     Unknown57,
     Unknown58,
     Unknown59,
-    Unknown60,
+    SystemNumaAvailableMemory = 60,
     Unknown61,
     Unknown62,
     Unknown63,
@@ -2388,6 +2388,8 @@ NTSYSAPI NTSTATUS  WINAPI RtlGetCompressionWorkSpaceSize(USHORT,PULONG,PULONG);
 NTSYSAPI NTSTATUS  WINAPI RtlGetControlSecurityDescriptor(PSECURITY_DESCRIPTOR, PSECURITY_DESCRIPTOR_CONTROL,LPDWORD);
 NTSYSAPI NTSTATUS  WINAPI RtlGetCurrentDirectory_U(ULONG, LPWSTR);
 NTSYSAPI PEB *     WINAPI RtlGetCurrentPeb(void);
+NTSYSAPI ULONG     WINAPI RtlGetCurrentProcessorNumber(void);
+NTSYSAPI void      WINAPI RtlGetCurrentProcessorNumberEx(PULONG);
 NTSYSAPI NTSTATUS  WINAPI RtlGetDaclSecurityDescriptor(PSECURITY_DESCRIPTOR,PBOOLEAN,PACL *,PBOOLEAN);
 NTSYSAPI ULONG     WINAPI RtlGetFullPathName_U(PCWSTR,ULONG,PWSTR,PWSTR*);
 NTSYSAPI NTSTATUS  WINAPI RtlGetGroupSecurityDescriptor(PSECURITY_DESCRIPTOR,PSID *,PBOOLEAN);
