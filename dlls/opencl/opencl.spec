@@ -5,6 +5,9 @@
 @ stdcall clGetDeviceIDs( long long long ptr ptr ) wine_clGetDeviceIDs
 @ stdcall clGetDeviceInfo( long long long ptr ptr ) wine_clGetDeviceInfo
 
+@ stdcall clRetainDevice( long ) wine_clRetainDevice
+@ stdcall clReleaseDevice( long ) wine_clReleaseDevice
+
 @ stdcall clCreateContext( ptr long ptr long ptr ptr ) wine_clCreateContext
 @ stdcall clCreateContextFromType( ptr long long ptr ptr ) wine_clCreateContextFromType
 @ stdcall clRetainContext( long ) wine_clRetainContext

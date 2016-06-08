@@ -146,6 +146,24 @@ cl_int WINAPI wine_clGetDeviceInfo(cl_device_id device, cl_device_info param_nam
     return ret;
 }
 
+cl_int WINAPI wine_clRetainDevice(cl_device_id device)
+{
+    cl_int ret;
+    TRACE("(%p)\n", device);
+    ret = clRetainDevice(device);
+    TRACE("(%p)=%d\n", device, ret);
+    return ret;
+}
+
+cl_int WINAPI wine_clReleaseDevice(cl_device_id device)
+{
+    cl_int ret;
+    TRACE("(%p)\n", device);
+    ret = clReleaseDevice(device);
+    TRACE("(%p)=%d\n", device, ret);
+    return ret;
+}
+
 
 /*---------------------------------------------------------------*/
 /* Context APIs  */
